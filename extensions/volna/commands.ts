@@ -4,17 +4,48 @@
  * через volna_stage. Одна дорога на двух входах: расхождение между «человек нажал» и «модель
  * решила» было бы источником самых непонятных ошибок.
  */
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { type Dirent, existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { probeEndpoint, resolveEndpoint } from "./cdp.ts";
 import { needsSnapshot, snapshotExists, snapshotTakenAt, takeSnapshot } from "./changes.ts";
-import { enterStage, intake, skipStage, statusReport } from "./core.ts";
+import { enterStage, intake, resumeTask, skipStage, statusReport } from "./core.ts";
 import { initVolna } from "./init.ts";
 import { journalIssues, stamp } from "./journal.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { loadActive, profileValue, readProfile, readState, writeState } from "./state.ts";
 import { STAGES, STAGE_NAMES } from "./stages.ts";
+
+/**
+ * Подсказка пути к файлу задания. Срабатывает только на то, что уже похоже на путь: подсказывать
+ * файлы тому, кто набирает задание словами, значит мешать ему на каждом слове.
+ */
+function fileCompletions(prefix: string): Array<{ value: string; label: string }> | null {
+	const raw = prefix.startsWith("@") ? prefix.slice(1) : prefix;
+	const pathLike = !/\s/.test(raw) && /^[.~]|^[\\/]|^[A-Za-z]:[\\/]|[\\/]/.test(raw);
+	if (!pathLike) return null;
+
+	const cut = Math.max(raw.lastIndexOf("/"), raw.lastIndexOf("\\"));
+	const head = cut < 0 ? "" : raw.slice(0, cut + 1);
+	const tail = raw.slice(cut + 1).toLowerCase();
+	const base = head.startsWith("~") ? join(homedir(), head.slice(1)) : head || ".";
+	let entries: Dirent[];
+	try {
+		entries = readdirSync(resolve(process.cwd(), base), { withFileTypes: true });
+	} catch {
+		return null;
+	}
+
+	const items = entries
+		.filter((entry) => entry.name.toLowerCase().startsWith(tail) && (tail.startsWith(".") || !entry.name.startsWith(".")))
+		.slice(0, 30)
+		.map((entry) => {
+			const value = `${head}${entry.name}${entry.isDirectory() ? "/" : ""}`;
+			return { value, label: value };
+		});
+	return items.length ? items : null;
+}
 
 /** Инструкция этапа кладётся в контекст без вывода человеку: ему хватает строки статуса. */
 function deliverStage(pi: ExtensionAPI, ctx: ExtensionCommandContext, text: string, note: string): void {
@@ -33,20 +64,21 @@ export function registerCommands(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("volna:task", {
-		description: "Волна: принять задание в работу (текст или путь к md-файлу) и открыть флоу",
-		getArgumentCompletions: () => null,
+		description: "Волна: принять задание (текст или ссылка на файл), без аргумента - продолжить задачу со следующей части",
+		getArgumentCompletions: (prefix) => fileCompletions(prefix),
 		handler: async (args, ctx) => {
 			const assignment = args.trim();
-			if (!assignment) {
-				ctx.ui.notify("Нужно задание: /volna:task <текст задания или путь к md-файлу>", "warning");
-				return;
-			}
-			const result = intake(ctx.cwd, { assignment });
+			const result = assignment ? intake(ctx.cwd, { assignment }) : resumeTask(ctx.cwd);
 			if (!result.ok) {
 				ctx.ui.notify(result.message, "error");
 				return;
 			}
-			deliverStage(pi, ctx, result.message, `Задача ${result.task} принята, этап intake`);
+			deliverStage(
+				pi,
+				ctx,
+				result.message,
+				assignment ? `Задача ${result.task} принята, этап intake` : `Задача ${result.task} продолжается, этап ${result.stage}`,
+			);
 		},
 	});
 

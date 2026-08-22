@@ -17,6 +17,12 @@ and the closing itself needs their explicit yes.
 6. **Tidy up**: temporary files, diagnostic scripts, debug code. Advocate diffs, snapshots and screenshots
    in `.volna/` are local and need no cleaning.
 
+**Split task.** A part is closed with `volna_finish part=true`: outcome and hours **of the part**, the part
+marked done in the list, the task left active and the branch untouched — the hours are summed at the full
+close. Last line of that turn: `/clear`, then `/volna:task` with no argument, which enters `spec` of the
+next part. The last part done — close the task the usual way, without `part`, with total hours. Dropping the
+work mid-way is a full close too: the remainder goes into `left`, unfinished parts are marked снята.
+
 Commits, push and PR are not part of this flow — the user does them when they see fit. Volna only warns if
 the current stage has no journal entry yet.
 

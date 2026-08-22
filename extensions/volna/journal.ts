@@ -9,6 +9,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type Frontmatter, splitFrontmatter, stringifyFrontmatter } from "./frontmatter.ts";
+import { applyPartsFields, parsePartsText, partsFromState, renderPartsText } from "./parts.ts";
 import { volnaPaths } from "./paths.ts";
 
 /** Метка времени журнала: локальное время машины, зона не пишется. */
@@ -186,6 +187,16 @@ export function lastLogSection(logText: string): { stage: string; iteration: num
 	return last;
 }
 
+/**
+ * Хвост лога после последней записи close: работа текущей части. У задачи без частей запись close
+ * одна и она последняя, поэтому хвост - весь лог, и поведение прежнее.
+ */
+export function logSinceClose(logText: string): string {
+	const matches = [...logText.matchAll(/^##\s+close\s+·\s+итерация/gm)];
+	const last = matches.at(-1);
+	return last?.index === undefined ? logText : logText.slice(last.index);
+}
+
 /** Этапы, по которым в логе есть запись, в порядке появления. */
 export function stagesInLog(logText: string): string[] {
 	const out: string[] = [];
@@ -197,6 +208,8 @@ export function stagesInLog(logText: string): string[] {
 
 export interface StateFields {
 	goal: string;
+	/** Список частей строками: подпункт есть только у задачи, разбитой на части. */
+	parts?: string;
 	established?: string;
 	decision?: string;
 	rejected?: string;
@@ -209,6 +222,7 @@ export interface StateFields {
 /** Имена подпунктов «Состояния» фиксированы: подпункт с другим именем никто не найдёт. */
 const STATE_LABELS: Array<[keyof StateFields, string]> = [
 	["goal", "цель"],
+	["parts", "части"],
 	["established", "установлено"],
 	["decision", "решение"],
 	["rejected", "отвергнуто"],
@@ -223,9 +237,12 @@ export function renderStateSection(fields: StateFields, at = stamp()): string {
 	for (const [key, label] of STATE_LABELS) {
 		const value = (fields[key] ?? "").trim();
 		if (!value) continue;
-		const parts = value.split(/\r?\n/);
-		lines.push(`**${label}:** ${parts[0]}`);
-		for (const part of parts.slice(1)) lines.push(part);
+		// Нумерованный список (части) начинается со своей строки: подпункт с первым пунктом на
+		// строке заголовка читается как «часть 1 - это и есть значение подпункта».
+		const rows = value.split(/\r?\n/);
+		const list = /^\d+[.)]\s/.test(rows[0]);
+		lines.push(rows[0] && !list ? `**${label}:** ${rows[0]}` : `**${label}:**`);
+		for (const row of list ? rows : rows.slice(1)) lines.push(row);
 		lines.push("");
 	}
 	return `${lines.join("\n").trimEnd()}\n`;
@@ -254,8 +271,11 @@ export function writeStateSection(
 	const { fm, body } = splitFrontmatter(text);
 	const index = body.search(/^##\s+Состояние/m);
 	const head = index < 0 ? body.trimEnd() : body.slice(0, index).trimEnd();
-	const next = `${head ? `${head}\n\n` : "\n"}${renderStateSection(fields, at)}`;
-	const patch: Frontmatter = { ...fm, updated: at };
+	// Список частей переносится сам, когда новый не передали: он источник правды об остатке, а
+	// секция переписывается целиком - забытый в одном вызове список стёр бы остаток задачи.
+	const parts = fields.parts ?? renderPartsText(partsFromState(body));
+	const next = `${head ? `${head}\n\n` : "\n"}${renderStateSection({ ...fields, parts: parts || undefined }, at)}`;
+	const patch: Frontmatter = applyPartsFields({ ...fm, updated: at }, parsePartsText(parts));
 	if (options.logText !== undefined) patch.state_sync = logMarker(options.logText);
 	writeFileSync(journalPath, stringifyFrontmatter(patch, next), "utf8");
 }

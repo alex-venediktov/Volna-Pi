@@ -3,7 +3,9 @@
 One iteration of edits from the plan, recorded so the next session understands why the code is like this.
 
 Before the first iteration: create the branch if the project uses them (name it in the log, «как»); the
-working tree is free of foreign changes (checked in `plan`).
+working tree is free of foreign changes (checked in `plan`). **One branch per task**: on a split task the
+parts land in it one after another, the branch is not recreated per part. Record its name once:
+`volna_journal` field `branch` — after that the header shows it on every part.
 
 1. Follow the plan, not inspiration. Deviating is fine — record what changed and why.
 2. **Minimal edits, on subject.** No drive-by improvements, no reformatting of other people's code, no

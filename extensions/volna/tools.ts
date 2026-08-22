@@ -11,11 +11,11 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { runAdvocate } from "./advocate.ts";
-import { enterStage, intake, skipStage, statusReport } from "./core.ts";
+import { enterStage, finishTask, intake, resumeTask, skipStage, statusReport } from "./core.ts";
 import { initVolna } from "./init.ts";
 import { appendLogSection, journalIssues, stamp, writeStateSection } from "./journal.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
-import { displayPath, loadActive, profileValue, readProfile, taskField, taskList, updateFrontmatter, writeState } from "./state.ts";
+import { displayPath, loadActive, profileValue, readProfile, taskField, updateFrontmatter } from "./state.ts";
 import { STAGE_NAMES } from "./stages.ts";
 import { runVisualCheck, screenshotContent } from "./visual.ts";
 import { recall } from "./recall.ts";
@@ -60,16 +60,29 @@ export function registerTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "volna_task",
 		label: "Волна: принять задание",
-		description: "Start a task: create its journal, open stage intake. Input is the assignment text or a path to an .md file.",
+		description:
+			"Start a task: create its journal, open stage intake. Input is the assignment text verbatim, " +
+			"or a link to the file holding it - path, @mention or file:// URL. A link that does not open is an error, not a task. " +
+			"No assignment: resume the active task and enter spec of its next part.",
 		promptSnippet: "Start a Volna task (creates the task journal)",
-		promptGuidelines: ["Call volna_task when the user states a task to be tracked by Volna."],
+		promptGuidelines: [
+			"Call volna_task when the user states a task to be tracked by Volna.",
+			"After /clear on a task split into parts, call it with no assignment: it picks up the next part.",
+		],
 		parameters: Type.Object({
-			assignment: Type.String({ description: "Assignment text verbatim, or path to an .md file" }),
+			assignment: Type.Optional(
+				Type.String({
+					description:
+						"Assignment text verbatim, or a link to the file holding it: path from the project root, absolute path, @mention or file:// URL. Omit to resume the active task",
+				}),
+			),
 			title: Type.Optional(Type.String({ description: "Short task name; defaults to first meaningful line" })),
 			type: Type.Optional(StringEnum(TASK_TYPES, { description: "Default: task" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const result = intake(ctx.cwd, { assignment: params.assignment, title: params.title, type: params.type });
+			const result = params.assignment?.trim()
+				? intake(ctx.cwd, { assignment: params.assignment, title: params.title, type: params.type })
+				: resumeTask(ctx.cwd);
 			if (!result.ok) throw new Error(result.message);
 			const text = [result.message, ...result.warnings.map((w) => `\nПредупреждение: ${w}`)].join("\n");
 			return reply(text, { task: result.task, stage: result.stage });
@@ -133,11 +146,19 @@ export function registerTools(pi: ExtensionAPI): void {
 			next: Type.Optional(Type.String({ description: "where to continue" })),
 			careful: Type.Optional(Type.String({ description: "current limits and dangers" })),
 			wiki: Type.Optional(Type.String({ description: "knowledge candidates" })),
+			parts: Type.Optional(
+				Type.String({
+					description:
+						"Task split into parts, one line per part: «1. название - не начата|в работе|сделано (дата, часы)|снята (причина)». Carried over untouched when omitted",
+				}),
+			),
 			open: Type.Optional(Type.Array(Type.String())),
+			branch: Type.Optional(Type.String({ description: "Task branch, recorded once when it is created: one branch per task, parts land in it one after another" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const active = loadActive(ctx.cwd);
 			if (!active) throw new Error("Активной задачи нет: журнал писать некуда. Прими задание через volna_task.");
+			if (params.branch?.trim()) updateFrontmatter(active.journalPath, { branch: params.branch.trim() });
 
 			if (params.action === "check") {
 				const issues = journalIssues(active);
@@ -161,6 +182,7 @@ export function registerTools(pi: ExtensionAPI): void {
 					active.journalPath,
 					{
 						goal: params.goal,
+						parts: params.parts,
 						established: params.established,
 						decision: params.decision,
 						rejected: params.rejected,
@@ -368,52 +390,30 @@ ${report.summary}` },
 	pi.registerTool({
 		name: "volna_finish",
 		label: "Волна: завершить задачу",
-		description: "Close the task: write outcome and hours to the journal, rewrite Status, clear the active task. Content in Russian.",
-		promptSnippet: "Close the Volna task (outcome, hours, clear active task)",
-		promptGuidelines: ["Call volna_finish only on stage close and only after an explicit yes from the user."],
+		description:
+			"Close the task: write outcome and hours to the journal, rewrite Status, clear the active task. " +
+			"part=true closes the current part instead: the task, the branch and the hours stay, the next part starts from spec. Content in Russian.",
+		promptSnippet: "Close the Volna task or its current part",
+		promptGuidelines: [
+			"Call volna_finish only on stage close and only after an explicit yes from the user.",
+			"On a task split into parts pass part=true until the last one; closing the task itself needs the remainder named in left.",
+		],
 		parameters: Type.Object({
 			summary: Type.String({ description: "Outcome: what changed for the user, what was verified" }),
 			hours: Type.Optional(Type.String({ description: "Hours from journal timestamps, e.g. 3.5" })),
 			left: Type.Optional(Type.String({ description: "What is left out of scope" })),
+			part: Type.Optional(Type.Boolean({ description: "Close the current part only, the task stays active" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const active = loadActive(ctx.cwd);
-			if (!active) throw new Error("Активной задачи нет: завершать нечего.");
-			const { iteration, stamp: at } = appendLogSection(active.volnaDir, active.task, {
-				stage: "close",
-				fields: {
-					что: "задача закрыта",
-					зачем: "зафиксировать итог и часы: после закрытия контекст исчезает",
-					как: params.hours ? `часы по меткам журнала: ${params.hours}` : "часы не считались",
-					сделано: params.summary,
-					осталось: params.left ?? "-",
-				},
+			const result = finishTask(ctx.cwd, {
+				summary: params.summary,
+				hours: params.hours,
+				left: params.left,
+				part: params.part === true,
 			});
-			writeStateSection(
-					active.journalPath,
-					{
-						goal: taskField(active.fm, "title") || "задача",
-						done: params.summary,
-						next: "задача закрыта, продолжения нет",
-						careful: params.left,
-					},
-					{ logText: freshLog(active.logPath) },
-				);
-			updateFrontmatter(active.journalPath, {
-				stage: "close",
-				stages_done: [...new Set([...taskList(active.fm, "stages_done"), "close"])],
-				updated: at,
-			});
-			writeState(active.volnaDir, { active: null, updated: at });
-			return reply(
-				[
-					`Задача ${active.task} закрыта (${at}), запись close, итерация ${iteration}.`,
-					"Активная задача снята: шапка и гейты по ней больше не работают.",
-					`Журнал остался: ${displayPath(active.volnaDir, active.journalPath)}.`,
-					"Следующую задачу начинай с чистого контекста: /new или /clear, затем /volna:task.",
-				].join(" "),
-				{ task: active.task, closed: true },
-			);
+			if (!result.ok) throw new Error(result.message);
+			const text = [result.message, ...result.warnings.map((warning) => `\nПредупреждение: ${warning}`)].join("\n");
+			return reply(text, { task: result.task, closed: result.closed });
 		},
 	});
 

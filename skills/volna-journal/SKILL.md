@@ -49,6 +49,12 @@ cancellation must reach Status, because nobody re-reads the log.
 `goal`, `done`, `next` are required. `established` (settled facts), `decision` (chosen approach and why),
 `rejected` (options with reasons), `careful` (limits in force now), `wiki` (knowledge candidates).
 
+`parts` appears only on a task split into parts (`volna-flow`, section «Task in parts»), and then it is the
+**source of truth about what is left**: `volna_finish` reads it to decide whether it closes a part or the
+task. One line per part, states `не начата` · `в работе` · `сделано (дата, часы)` · `снята (причина)`;
+`part`/`parts` in the frontmatter are counted from it. Omitting the field on `action=state` keeps the list
+as it was — it is never dropped by a rewrite.
+
 **`rejected` is half the value of the section.** Without it the only way to learn that a path was already
 tried is to read the whole log — which is exactly what Status exists to avoid.
 

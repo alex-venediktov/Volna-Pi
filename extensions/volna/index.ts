@@ -13,7 +13,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { registerCommands } from "./commands.ts";
 import { contextHeader, journalWarnings } from "./core.ts";
-import { journalIssues, stagesInLog } from "./journal.ts";
+import { journalIssues, logSinceClose, stagesInLog } from "./journal.ts";
+import { currentPart, partsFromState, partsHeadline, unfinishedParts } from "./parts.ts";
 import { findVolnaDir, isInside, volnaPaths } from "./paths.ts";
 import { type ActiveTask, loadActive, profileValue, readProfile, readState, taskField, taskList } from "./state.ts";
 import { stagePosition } from "./stages.ts";
@@ -137,6 +138,8 @@ function refreshUi(ctx: ExtensionContext, active: ActiveTask | null): void {
 	const lines: string[] = [];
 	const title = taskField(active.fm, "title");
 	lines.push(`${active.task}${title ? ` · ${title.slice(0, 50)}` : ""}`);
+	const parts = partsFromState(active.stateSection);
+	if (parts.length) lines.push(ctx.ui.theme.fg("muted", `${partsHeadline(parts)} · осталось ${unfinishedParts(parts).length}`));
 	for (const item of taskList(active.fm, "open").slice(0, 3)) {
 		lines.push(ctx.ui.theme.fg("muted", `открыто: ${item.slice(0, 70)}`));
 	}
@@ -157,9 +160,13 @@ function resumeCard(active: ActiveTask): string {
 	const open = taskList(active.fm, "open");
 	if (open.length) lines.push(`Открыто: ${open.join("; ")}`);
 	if (active.stateSection) lines.push("", active.stateSection);
+	const parts = partsFromState(active.stateSection);
+	const part = currentPart(parts);
 	lines.push(
 		"",
-		"Продолжай с текущего этапа: volna_stage вернёт его инструкцию и контекст. Журнал пиши через volna_journal.",
+		part
+			? `Задача разбита на части, текущая - ${part.number}/${parts.length}: ${part.title}. Работа идёт по ней одной; закончится - volna_finish с part=true.`
+			: "Продолжай с текущего этапа: volna_stage вернёт его инструкцию и контекст. Журнал пиши через volna_journal.",
 	);
 	return lines.join("\n");
 }
@@ -174,10 +181,13 @@ function editPath(event: { toolName: string; input: any }): string | undefined {
 /**
  * Коммит без записи по этапу: предупреждение человеку, не блокировка. Доставки в этой версии нет,
  * коммит - личное дело работающего, но потерянная запись стоит дороже, чем лишняя строка в футере.
+ *
+ * Считается запись текущей части, а не всей задачи: коммит на часть - норма, и запись прошлой части
+ * про эту ничего не говорит.
  */
 function warnOnCommit(ctx: ExtensionContext, active: ActiveTask, command: string): void {
 	if (!/\bgit\s+(-[^\s]+\s+)*commit\b/i.test(command)) return;
 	const stage = taskField(active.fm, "stage");
-	if (stagesInLog(active.logText).includes(stage)) return;
+	if (stagesInLog(logSinceClose(active.logText)).includes(stage)) return;
 	ctx.ui.notify(`Волна: по этапу ${stage} записи в журнале ещё нет - после коммита её будет нечем восстановить`, "warning");
 }

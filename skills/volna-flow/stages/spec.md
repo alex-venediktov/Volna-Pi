@@ -13,11 +13,17 @@ Write:
 4. **Divergences and questions**: what contradicts the code, what is missing. Anything that blocks
    planning goes to `volna_journal action=open` — and that is when the turn goes back to the user.
 
+**Parts.** `analyze` showed several independent results, each with its own «done when» — offer the split
+**with options** (one task in one run · one task in N parts), the user decides. Agreed: write the list with
+`volna_journal action=state`, field `parts`, one line per part («1. схема хранения - не начата»). The task
+stays one, with one journal and one branch. Already split: this stage is the statement and the criteria of
+the **current part**, not of the whole task.
+
 Ask with options when you must ask: the first option is the one the flow or the code implies. No
 blocking question — continue in the same turn without asking permission.
 
 Stop and ask when: criteria cannot be written because the expected behaviour is unknown; the assignment
 demands behaviour that contradicts existing correct behaviour.
 
-Done in the log: statement, criteria, scope boundary, open questions (or an explicit «none»). Then
-`volna_stage stage=plan`.
+Done in the log: statement, criteria, scope boundary, open questions (or an explicit «none»); on a split
+task also the list of parts. Then `volna_stage stage=plan`.

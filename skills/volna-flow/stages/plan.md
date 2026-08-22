@@ -3,6 +3,8 @@
 Lay the work out over files so every edit is justified by a criterion. From planning on, the work is
 no longer reading.
 
+0. **Split task**: the plan covers the **current part only** — its files, its order, its risks. Planning the
+   remaining parts here means planning against code that does not exist yet.
 1. **Edits by file**: file, what changes, which acceptance criterion it closes. An edit that matches no
    criterion is either a criterion missed in `spec` or an edit not needed.
 2. **Order and groups.** Independent groups can close in one `implement` iteration; dependent ones go

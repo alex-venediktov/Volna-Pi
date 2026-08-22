@@ -78,7 +78,25 @@ export async function run(): Promise<void> {
 	const visual = await call("volna_visual", { url: "http://127.0.0.1:9/" });
 	check("визуальная проверка сообщает, что браузера нет", toolText(visual).includes("не отвечает"), toolText(visual).slice(0, 80));
 
-	check("задача закрыта", toolText(await call("volna_finish", { summary: "CSV-экспорт добавлен, тест зелёный", hours: "1.5" })).includes("закрыта"));
+	await call("volna_journal", {
+		action: "state",
+		goal: "отчёт выгружается в CSV",
+		parts: "1. выгрузка строк - в работе\n2. колонки под формат заказчика - не начата",
+		done: "место экспорта найдено",
+		next: "первая часть",
+		branch: "feature/csv-export",
+	});
+	check("ветка записана инструментом", String(loadActive(dir)!.fm.branch) === "feature/csv-export", String(loadActive(dir)!.fm.branch));
+	const partClosed = await call("volna_finish", { summary: "строки выгружаются", hours: "1", part: true });
+	check("инструмент закрывает часть, не задачу", toolText(partClosed).includes("Часть 1/2 закрыта") && readState(volnaDir).active === task, toolText(partClosed).slice(0, 70));
+	check("продолжение без задания входит в следующую часть", toolText(await call("volna_task", {})).includes("часть 2/2"), toolText(await call("volna_task", {})).slice(0, 80));
+
+	check(
+		"задача закрыта",
+		toolText(
+			await call("volna_finish", { summary: "CSV-экспорт добавлен, тест зелёный", hours: "1.5", left: "колонки под формат заказчика - отдельной задачей" }),
+		).includes("закрыта"),
+	);
 	check("активная задача снята", readState(volnaDir).active === null);
 	check("итог в «Состоянии»", readFileSync(join(volnaDir, "journal", `TASK-${task}.md`), "utf8").includes("CSV-экспорт добавлен"));
 	check("часы в логе", readFileSync(join(volnaDir, "journal", "logs", `TASK-${task}.log.md`), "utf8").includes("часы по меткам журнала: 1.5"));

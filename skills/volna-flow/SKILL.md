@@ -32,7 +32,7 @@ Each stage returns its own instructions through `volna_stage`; do not read `stag
 
 | # | Stage | Level | About |
 |---|---|---|---|
-| 1 | `intake` | required | accept the assignment (text or .md), card, journal |
+| 1 | `intake` | required | accept the assignment (text or file link), card, journal |
 | 2 | `analyze` | expected | study the code, similar places, questions |
 | 3 | `spec` | expected | statement in your own words, acceptance criteria |
 | 4 | `plan` | expected | edits by file, order, risks |
@@ -40,7 +40,7 @@ Each stage returns its own instructions through `volna_stage`; do not read `stag
 | 6 | `advocate` | expected | adversarial review of the changes |
 | 7 | `unit-tests` | expected | tests by project convention |
 | 8 | `visual` | optional | browser, console errors, screenshot |
-| 9 | `close` | required | outcome, hours, clear the active task |
+| 9 | `close` | required | outcome and hours; of a part or of the whole task |
 
 Levels: **required** needs a decision from the user; **expected** is done by default and skipped only with
 a reason in the journal; **optional** happens when there is a subject for it.
@@ -49,6 +49,32 @@ No delivery in this version: commit, push, PR and issue trackers are outside the
 
 `implement` ⇄ `advocate` cycles until the verdict is clean. Any further code change is a new `implement`
 iteration, and the advocate runs again after it — one passed review does not cover code changed later.
+
+## Task in parts
+
+Work that does not fit one run stays **one task, one journal, one branch**, split into parts: the cycle
+`spec → plan → implement ⇄ advocate → unit-tests → visual → close` runs once per part, with `/clear`
+between them. No separate tasks and no separate plan file appear.
+
+The list of parts lives in the `**части:**` subitem of Status — `volna_journal action=state`, field
+`parts`, one line per part: `1. название - не начата | в работе | сделано (дата, часы) | снята (причина)`.
+`part`/`parts` in the frontmatter are counted from that list by the code, and the list is carried over
+untouched when `action=state` omits it: it is the source of truth about what is left.
+
+Propose the split **with options** on `spec` when `analyze` showed several independent results, each with
+its own «done when». The user decides — the split changes the order of work for days ahead.
+
+- every stage of the cycle is about the **current part only**;
+- part closed: `volna_finish part=true` — outcome and hours of the part into the journal, the part marked
+  done, the task **stays active**, the branch stays, the hours keep accumulating. Then `/clear`, then
+  `volna_task` with **no assignment**: it picks up this task and enters `spec` of the next part;
+- last part done: `volna_finish` without `part` — outcome of the whole task, total hours, active task cleared;
+- work abandoned mid-way is also a full close: name the remainder in `left`, unfinished parts are marked снята.
+
+Delivery is reserved, not absent by design: when a `deliver` stage appears it sits **inside** this cycle —
+one branch per task, one commit per part (more when the part needs them), one PR that gets amended.
+Committing a part shifts the advocate's base by itself; where there is no version control, closing a part
+re-takes the tree snapshot for the same reason.
 
 ## Autopass
 

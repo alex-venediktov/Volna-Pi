@@ -5,12 +5,13 @@
  * ставятся здесь, поэтому «перешёл на этап» и «этап записан» - одно и то же событие. Инструкция
  * этапа возвращается тем же вызовом, и модель продолжает работу в том же ходе.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolveAssignment } from "./assignment.ts";
 import { needsSnapshot, snapshotExists, takeSnapshot } from "./changes.ts";
 import {
 	appendLogSection,
 	createJournal,
+	writeStateSection,
 	freeTaskId,
 	journalIssues,
 	lastLogSection,
@@ -18,7 +19,8 @@ import {
 	stamp,
 	stagesInLog,
 } from "./journal.ts";
-import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
+import { currentPart, markPart, partsFromState, partsHeadline, renderPartsText, unfinishedParts, writeParts } from "./parts.ts";
+import { findVolnaDir, volnaPaths } from "./paths.ts";
 import {
 	type ActiveTask,
 	displayPath,
@@ -52,7 +54,7 @@ const NOT_INITIALIZED = [
 
 const NO_ACTIVE = [
 	"Активной задачи нет.",
-	"Принять задание: /volna:task <текст задания или путь к md-файлу>.",
+	"Принять задание: /volna:task <текст задания или ссылка на файл с постановкой>.",
 ].join(" ");
 
 /** Каталог .volna либо объяснение, почему работать нельзя. */
@@ -62,7 +64,7 @@ function requireVolna(cwd: string): { volnaDir: string } | { error: string } {
 }
 
 export interface IntakeOptions {
-	/** Текст задания или путь к md-файлу. */
+	/** Текст задания или ссылка на файл с постановкой: путь, @-упоминание, адрес file://. */
 	assignment: string;
 	title?: string;
 	type?: string;
@@ -70,7 +72,7 @@ export interface IntakeOptions {
 }
 
 /**
- * Этап 1: принять задание. Задание приходит текстом или файлом, идентификатор собирается сам
+ * Этап 1: принять задание. Задание приходит текстом или ссылкой на файл, идентификатор собирается сам
  * (ГГММДД-слаг) - переспрашивать про него нечего, а руками собранный id разъезжается с именем файла.
  */
 export function intake(cwd: string, options: IntakeOptions): FlowResult {
@@ -82,20 +84,16 @@ export function intake(cwd: string, options: IntakeOptions): FlowResult {
 	if (!raw) {
 		return {
 			ok: false,
-			message: "Задание пустое. Передай текст задания или путь к md-файлу с постановкой.",
+			message: "Задание пустое. Передай текст задания или ссылку на файл с постановкой.",
 			warnings: [],
 		};
 	}
 
-	let assignment = raw;
-	let source = "текст в разговоре";
-	const candidate = isAbsolute(raw) ? raw : resolve(workspaceRoot(volnaDir), raw);
-	if (/\.(md|txt)$/i.test(raw) && existsSync(candidate)) {
-		assignment = readFileSync(candidate, "utf8");
-		source = displayPath(volnaDir, candidate);
-	}
+	const resolved = resolveAssignment(cwd, volnaDir, raw);
+	if ("error" in resolved) return { ok: false, message: resolved.error, warnings: [] };
+	const { text: assignment, source } = resolved;
 
-	const title = (options.title || firstMeaningfulLine(assignment)).trim().slice(0, 120);
+	const title = (options.title || firstMeaningfulLine(assignment, resolved.fallbackTitle)).trim().slice(0, 120);
 	const task = options.id?.trim() || freeTaskId(volnaDir, title);
 	const type = normalizeType(options.type);
 
@@ -103,7 +101,7 @@ export function intake(cwd: string, options: IntakeOptions): FlowResult {
 	const { journalPath, logPath } = createJournal(volnaDir, { task, title, type, source, assignment });
 	writeState(volnaDir, { active: task, updated: stamp() });
 
-	const warnings: string[] = [];
+	const warnings: string[] = [...resolved.warnings];
 	if (previous && previous !== task) {
 		warnings.push(`прежняя активная задача ${previous} снята с активной - её журнал остался на месте`);
 	}
@@ -129,6 +127,54 @@ export function intake(cwd: string, options: IntakeOptions): FlowResult {
 		.join("\n");
 
 	return { ok: true, message, stage: "intake", iteration: 1, task, warnings };
+}
+
+/**
+ * Продолжение задачи после /clear: есть остаток по частям - поднять задачу и войти в spec следующей
+ * части, не спрашивая «начинаем?». Ответ на этот вопрос человек дал, когда делил задачу.
+ */
+export function resumeTask(cwd: string): FlowResult {
+	const guard = requireVolna(cwd);
+	if ("error" in guard) return { ok: false, message: guard.error, warnings: [] };
+	const active = loadActive(cwd);
+	if (!active) {
+		return {
+			ok: false,
+			message: "Активной задачи нет, продолжать нечего. Прими задание: текст или ссылка на файл с постановкой.",
+			warnings: [],
+		};
+	}
+
+	const parts = partsFromState(active.stateSection);
+	const next = currentPart(parts);
+	if (!parts.length || !next) {
+		const stage = taskField(active.fm, "stage");
+		return {
+			ok: true,
+			message: [
+				`Задача ${active.task} уже в работе: ${taskField(active.fm, "title") || "(без названия)"}, этап ${stage} ${stagePosition(stage)}.`,
+				parts.length ? "Все части сделаны - дальше полное закрытие (этап close)." : "На части задача не делится.",
+				"Продолжить: volna_stage с нужным этапом.",
+			].join(" "),
+			stage,
+			task: active.task,
+			warnings: [],
+		};
+	}
+
+	if (next.status === "не начата") writeParts(active.journalPath, markPart(parts, next.number, "в работе"));
+	const result = enterStage(cwd, "spec", { reason: `часть ${next.number}/${parts.length}: ${next.title}` });
+	if (!result.ok) return result;
+	return {
+		...result,
+		message: [
+			`# Продолжение задачи ${active.task}: часть ${next.number}/${parts.length} - ${next.title}`,
+			"",
+			"Задача та же, журнал тот же, ветка та же. Постановка и критерии приёмки пишутся на эту часть.",
+			"",
+			result.message,
+		].join("\n"),
+	};
 }
 
 export interface EnterStageOptions {
@@ -280,6 +326,168 @@ export function skipStage(cwd: string, stageName: string, reason: string): FlowR
 	};
 }
 
+export interface FinishOptions {
+	/** Итог: что изменилось для пользователя, что проверено. */
+	summary: string;
+	hours?: string;
+	left?: string;
+	/** Закрыть только текущую часть: задача остаётся активной, ветка и снимок - тоже. */
+	part?: boolean;
+}
+
+/**
+ * Закрыть часть или задачу целиком. Часы и дату ставит код: по меткам журнала их можно проверить,
+ * а на глаз - нет.
+ *
+ * Закрытие части - не закрытие задачи: активная задача, ветка и открытые вопросы остаются, потому
+ * что работа продолжается следующей частью. Задача, у которой остались части, закрывается целиком
+ * только с перечисленным остатком: иначе через неделю не отличить брошенную работу от сделанной.
+ */
+export function finishTask(cwd: string, options: FinishOptions): FlowResult & { closed: boolean } {
+	const guard = requireVolna(cwd);
+	if ("error" in guard) return { ok: false, message: guard.error, warnings: [], closed: false };
+	const { volnaDir } = guard;
+	const active = loadActive(cwd);
+	if (!active) return { ok: false, message: "Активной задачи нет: завершать нечего.", warnings: [], closed: false };
+
+	const parts = partsFromState(active.stateSection);
+	const rest = unfinishedParts(parts);
+	const title = taskField(active.fm, "title") || "задача";
+	const warnings: string[] = [];
+
+	if (options.part) {
+		const current = currentPart(parts);
+		if (!current) {
+			return {
+				ok: false,
+				message: parts.length
+					? "Все части уже закрыты: это полное закрытие задачи, вызывай без part."
+					: "Задача на части не делится: закрывай её целиком, без part. Деление предлагается на spec и живёт в подпункте «части».",
+				warnings: [],
+				closed: false,
+			};
+		}
+
+		const at = stamp();
+		const note = [at.slice(0, 10), options.hours ? `${options.hours}ч` : ""].filter(Boolean).join(", ");
+		const closedParts = markPart(parts, current.number, "сделано", note);
+		const following = currentPart(closedParts);
+		const { iteration } = appendLogSection(volnaDir, active.task, {
+			stage: "close",
+			fields: {
+				что: `часть ${current.number}/${parts.length} закрыта: ${current.title}`,
+				зачем: "итог и часы части фиксируются сразу: к полному закрытию их уже не восстановить",
+				как: options.hours ? `часы по меткам журнала: ${options.hours}` : "часы не считались",
+				сделано: options.summary,
+				осталось: options.left ?? (following ? `часть ${following.number}: ${following.title}` : "-"),
+			},
+		});
+		writeStateSection(
+			active.journalPath,
+			{
+				goal: title,
+				parts: renderPartsText(closedParts),
+				done: options.summary,
+				next: following
+					? `часть ${following.number}/${parts.length}: ${following.title} - начать со spec после /clear`
+					: "все части сделаны - полное закрытие задачи (этап close)",
+				careful: options.left,
+			},
+			{ logText: readFileSync(active.logPath, "utf8") },
+		);
+		updateFrontmatter(active.journalPath, {
+			stage: "close",
+			stages_done: [...new Set([...taskList(active.fm, "stages_done"), "close"])],
+			updated: at,
+		});
+
+		// Снимок дерева - база адвоката там, где системы контроля версий нет. Часть принята,
+		// значит база сдвигается: иначе адвокат следующей части придёт с правками предыдущей.
+		if (needsSnapshot(volnaDir, readProfile(volnaDir))) {
+			const snapshot = takeSnapshot(volnaDir, active.task, readProfile(volnaDir));
+			warnings.push(`снимок дерева пере-снят (${snapshot.files} файлов) - адвокат следующей части увидит только её правки`);
+		}
+
+		return {
+			ok: true,
+			closed: false,
+			message: [
+				`Часть ${current.number}/${parts.length} закрыта (${at}), запись close, итерация ${iteration}.`,
+				following
+					? `Осталось частей: ${rest.length - 1}. Следующая - ${following.number}: ${following.title}.`
+					: "Это была последняя часть: дальше полное закрытие задачи.",
+				"Задача остаётся активной, ветка та же, часы копятся до полного закрытия.",
+				following ? "Продолжение: /clear, затем /volna:task без аргумента - поднимет эту задачу и войдёт в spec следующей части." : "",
+			]
+				.filter(Boolean)
+				.join(" "),
+			stage: "close",
+			iteration,
+			task: active.task,
+			warnings,
+		};
+	}
+
+	if (rest.length && !options.left?.trim()) {
+		return {
+			ok: false,
+			closed: false,
+			message: [
+				`У задачи остались незакрытые части (${rest.map((part) => `${part.number}. ${part.title}`).join("; ")}).`,
+				"Закрыть часть: тот же вызов с part=true. Закрыть задачу целиком с остатком - тоже законно,",
+				"но остаток нужно назвать в left: незаписанный остаток через сессию неотличим от забытого.",
+			].join(" "),
+			warnings: [],
+		};
+	}
+
+	const at = stamp();
+	const dropped = rest.reduce((acc, part) => markPart(acc, part.number, "снята", "задача закрыта с остатком"), parts);
+	const { iteration } = appendLogSection(volnaDir, active.task, {
+		stage: "close",
+		fields: {
+			что: "задача закрыта",
+			зачем: "зафиксировать итог и часы: после закрытия контекст исчезает",
+			как: options.hours ? `часы по меткам журнала: ${options.hours}` : "часы не считались",
+			сделано: options.summary,
+			осталось: options.left ?? "-",
+		},
+	});
+	writeStateSection(
+		active.journalPath,
+		{
+			goal: title,
+			parts: dropped.length ? renderPartsText(dropped) : undefined,
+			done: options.summary,
+			next: "задача закрыта, продолжения нет",
+			careful: options.left,
+		},
+		{ logText: readFileSync(active.logPath, "utf8") },
+	);
+	updateFrontmatter(active.journalPath, {
+		stage: "close",
+		stages_done: [...new Set([...taskList(active.fm, "stages_done"), "close"])],
+		updated: at,
+	});
+	writeState(volnaDir, { active: null, updated: at });
+	if (rest.length) warnings.push(`незакрытых частей ${rest.length} - они помечены снятыми, остаток назван в итоге`);
+
+	return {
+		ok: true,
+		closed: true,
+		message: [
+			`Задача ${active.task} закрыта (${at}), запись close, итерация ${iteration}.`,
+			"Активная задача снята: шапка и гейты по ней больше не работают.",
+			`Журнал остался: ${displayPath(volnaDir, active.journalPath)}.`,
+			"Следующую задачу начинай с чистого контекста: /new или /clear, затем /volna:task.",
+		].join(" "),
+		stage: "close",
+		iteration,
+		task: active.task,
+		warnings,
+	};
+}
+
 /** Сводка по активной задаче: этап, прогресс, открытые вопросы, замечания к журналу. */
 export function statusReport(cwd: string): string {
 	const volnaDir = findVolnaDir(cwd);
@@ -301,6 +509,11 @@ export function statusReport(cwd: string): string {
 	if (skipped.length) lines.push(`Пропущено: ${skipped.join("; ")}`);
 	const branch = taskField(active.fm, "branch");
 	if (branch) lines.push(`Ветка: ${branch}`);
+	const parts = partsFromState(active.stateSection);
+	if (parts.length) {
+		lines.push(`Части: ${partsHeadline(parts)}, осталось ${unfinishedParts(parts).length} из ${parts.length}`);
+		for (const part of parts) lines.push(`  ${part.number}. ${part.title} - ${part.status}${part.note ? ` (${part.note})` : ""}`);
+	}
 	const open = taskList(active.fm, "open");
 	if (open.length) lines.push(`Открыто: ${open.join("; ")}`);
 	const last = lastLogSection(active.logText);
@@ -325,6 +538,8 @@ export function contextHeader(active: ActiveTask): string[] {
 	head.push(`· этап ${stage} ${stagePosition(stage)}`);
 	const branch = taskField(active.fm, "branch");
 	if (branch) head.push(`· ${branch}`);
+	const parts = partsHeadline(partsFromState(active.stateSection));
+	if (parts) head.push(`· ${parts}`);
 	head.push(`· сейчас ${stamp()}`);
 	lines.push(head.join(" "));
 	for (const item of taskList(active.fm, "open").slice(0, 3)) lines.push(`  открыто: ${item}`);
@@ -351,6 +566,11 @@ function taskContextBlock(active: ActiveTask, volnaDir: string): string {
 	if (done.length) lines.push(`passed: ${done.join(", ")}`);
 	const skipped = taskList(active.fm, "skipped");
 	if (skipped.length) lines.push(`skipped: ${skipped.join("; ")}`);
+	const parts = partsFromState(active.stateSection);
+	if (parts.length) {
+		const current = currentPart(parts);
+		lines.push(`parts: ${current ? `${current.number}/${parts.length} ${current.title}` : "all done"} - this stage is about this part only`);
+	}
 	const open = taskList(active.fm, "open");
 	if (open.length) lines.push(`open: ${open.join("; ")}`);
 	if (active.stateSection) lines.push("", "Status from the journal:", "", active.stateSection);
@@ -375,12 +595,12 @@ function profileBlock(volnaDir: string): string {
 	return out.join("\n");
 }
 
-function firstMeaningfulLine(text: string): string {
+function firstMeaningfulLine(text: string, fallback?: string): string {
 	for (const line of text.split(/\r?\n/)) {
 		const clean = line.replace(/^#+\s*/, "").replace(/^[-*]\s*/, "").trim();
 		if (clean) return clean;
 	}
-	return "задание без названия";
+	return fallback?.trim() || "задание без названия";
 }
 
 function normalizeType(value: string | undefined): string {
