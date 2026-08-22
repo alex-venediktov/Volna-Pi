@@ -9,8 +9,10 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { probeEndpoint, resolveEndpoint } from "./cdp.ts";
+import type { ExecLike } from "./changes.ts";
 import { needsSnapshot, snapshotExists, snapshotTakenAt, takeSnapshot } from "./changes.ts";
 import { enterStage, intake, resumeTask, skipStage, statusReport } from "./core.ts";
+import { deliverySettings, gitState } from "./git.ts";
 import { initVolna } from "./init.ts";
 import { journalIssues, stamp } from "./journal.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
@@ -201,7 +203,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 	pi.registerCommand("volna:doctor", {
 		description: "Волна: проверить настройку - .volna, профиль, состояние, git, браузер, запуск адвоката",
 		handler: async (_args, ctx) => {
-			const text = await doctorReport(ctx.cwd);
+			const text = await doctorReport(ctx.cwd, pi.exec);
 			pi.sendMessage({ customType: "volna-doctor", content: text, display: true }, { triggerTurn: false });
 		},
 	});
@@ -234,7 +236,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 }
 
 /** Проверки настройки. Каждая строка отвечает на вопрос «что сломается, если этого нет». */
-export async function doctorReport(cwd: string): Promise<string> {
+export async function doctorReport(cwd: string, exec: ExecLike): Promise<string> {
 	const lines: string[] = ["# Волна: проверка настройки", ""];
 	const volnaDir = findVolnaDir(cwd);
 	if (!volnaDir) {
@@ -279,6 +281,7 @@ export async function doctorReport(cwd: string): Promise<string> {
 
 	const source = changeSourceLine(volnaDir, profile, active?.task);
 	lines.push(`- изменения для адвоката: ${source}`);
+	lines.push(`- доставка: ${await deliveryLine(volnaDir, profile, exec)}`);
 
 	const endpointInfo = resolveEndpoint(profileValue(profile, "endpoint браузера") || undefined);
 	const browser = await probeEndpoint(endpointInfo.endpoint, 2000);
@@ -289,6 +292,21 @@ export async function doctorReport(cwd: string): Promise<string> {
 	);
 	lines.push("", `Проверено ${stamp()}.`);
 	return lines.join("\n");
+}
+
+/**
+ * Что сделает этап доставки. Строка в докторе потому, что доставка - единственное действие флоу,
+ * которое видно снаружи: узнать про несуществующий удалённый лучше до push, а не во время.
+ */
+async function deliveryLine(volnaDir: string, profile: Record<string, string>, exec: ExecLike): Promise<string> {
+	const delivery = deliverySettings(profile);
+	if (delivery.mode === "нет") return "профиль говорит «нет» - этапа доставки в проекте не существует";
+	if (delivery.mode === "") return "! строки «доставка» в профиле нет - этап deliver остановится и спросит";
+	const state = await gitState(exec, workspaceRoot(volnaDir), delivery.remote);
+	if (!state.repo) return `! профиль просит «${delivery.mode}», но git-репозитория здесь нет`;
+	const branch = `ветка ${state.branch}, шаблон «${delivery.branchPattern}»`;
+	if (delivery.mode === "commit") return `${delivery.mode}: ${branch}`;
+	return `${delivery.mode}: ${branch}, удалённый ${delivery.remote}${state.hasRemote ? "" : " - такого удалённого нет"}`;
 }
 
 /**

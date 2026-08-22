@@ -54,7 +54,7 @@ export async function run(): Promise<void> {
 
 	const header = await handlers.get("before_agent_start")({ systemPrompt: "исходный промпт" }, ctx);
 	check("шапка идёт отдельным сообщением", header?.message?.customType === "volna-header");
-	check("в шапке этап и позиция", String(header.message.content).includes("этап analyze 2/9"));
+	check("в шапке этап и позиция", String(header.message.content).includes("этап analyze 2/10"));
 	check("системный промпт не подменён", header.systemPrompt === "исходный промпт");
 
 	const blocked = await toolCall("write", { path: join(dir, "src", "orders.js") });

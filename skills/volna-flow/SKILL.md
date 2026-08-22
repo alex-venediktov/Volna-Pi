@@ -21,6 +21,7 @@ one line, offer `/volna:init`, stop. Never create a journal in someone else's re
 | review your own changes | `volna_advocate` |
 | check the web output in a browser | `volna_visual` |
 | recall what was already done on the theme | `volna_recall` |
+| deliver: branch, commit, push | `volna_deliver` |
 | close the task | `volna_finish` |
 
 Never write journal markdown by hand: the tool sets the format, the iteration number and the timestamp.
@@ -40,12 +41,14 @@ Each stage returns its own instructions through `volna_stage`; do not read `stag
 | 6 | `advocate` | expected | adversarial review of the changes |
 | 7 | `unit-tests` | expected | tests by project convention |
 | 8 | `visual` | optional | browser, console errors, screenshot |
-| 9 | `close` | required | outcome and hours; of a part or of the whole task |
+| 9 | `deliver` | expected | git: task branch, commit of the part, push |
+| 10 | `close` | required | outcome and hours; of a part or of the whole task |
 
 Levels: **required** needs a decision from the user; **expected** is done by default and skipped only with
 a reason in the journal; **optional** happens when there is a subject for it.
 
-No delivery in this version: commit, push, PR and issue trackers are outside the flow.
+Delivery is git only and profile-driven (`доставка`, `ветка`, `база`, `удалённый`): `нет` means the stage
+does not exist. Issue trackers and PRs are still outside the flow.
 
 `implement` ⇄ `advocate` cycles until the verdict is clean. Any further code change is a new `implement`
 iteration, and the advocate runs again after it — one passed review does not cover code changed later.
@@ -71,14 +74,13 @@ its own «done when». The user decides — the split changes the order of work 
 - last part done: `volna_finish` without `part` — outcome of the whole task, total hours, active task cleared;
 - work abandoned mid-way is also a full close: name the remainder in `left`, unfinished parts are marked снята.
 
-Delivery is reserved, not absent by design: when a `deliver` stage appears it sits **inside** this cycle —
-one branch per task, one commit per part (more when the part needs them), one PR that gets amended.
-Committing a part shifts the advocate's base by itself; where there is no version control, closing a part
-re-takes the tree snapshot for the same reason.
+Delivery sits **inside** this cycle: `deliver` runs before every part's `close` — one branch per task, one
+commit per part (more when the part needs them). Committing a part shifts the advocate's base by itself;
+where there is no version control, closing a part re-takes the tree snapshot for the same reason.
 
 ## Autopass
 
-Stages 2–8 run **as one chain in the same turn**: a stage closes, then `volna_stage` for the next one
+Stages 2–9 run **as one chain in the same turn**: a stage closes, then `volna_stage` for the next one
 immediately, without waiting for a command. Write a line «stage X closed, going to Y» as you go.
 
 The turn goes back to the user only when it must:
@@ -86,6 +88,7 @@ The turn goes back to the user only when it must:
 - a fork the flow does not resolve;
 - a stop-criterion: ambiguous statement, missing data or access, divergence from the reference;
 - the user themself is needed: a verdict on a picture, an answer from `spec`, a look at the changes;
+- `deliver`: push is visible to other people and needs an explicit yes;
 - the `close` boundary — the user starts closing.
 
 On long work a checkpoint is a step inside the chain, not a stop: rewrite Status (`volna_journal

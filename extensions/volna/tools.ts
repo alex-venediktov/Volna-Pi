@@ -11,9 +11,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { runAdvocate } from "./advocate.ts";
+import type { ExecLike } from "./changes.ts";
+import { branchFor, commitChanges, deliverySettings, ensureBranch, gitState, pushBranch } from "./git.ts";
 import { enterStage, finishTask, intake, resumeTask, skipStage, statusReport } from "./core.ts";
 import { initVolna } from "./init.ts";
 import { appendLogSection, journalIssues, stamp, writeStateSection } from "./journal.ts";
+import { currentPart, partsFromState } from "./parts.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { displayPath, loadActive, profileValue, readProfile, taskField, updateFrontmatter } from "./state.ts";
 import { STAGE_NAMES } from "./stages.ts";
@@ -404,7 +407,9 @@ ${report.summary}` },
 			left: Type.Optional(Type.String({ description: "What is left out of scope" })),
 			part: Type.Optional(Type.Boolean({ description: "Close the current part only, the task stays active" })),
 		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const active = loadActive(ctx.cwd);
+			const undelivered = active ? await undeliveredWork(pi.exec, active.volnaDir, signal) : "";
 			const result = finishTask(ctx.cwd, {
 				summary: params.summary,
 				hours: params.hours,
@@ -412,8 +417,135 @@ ${report.summary}` },
 				part: params.part === true,
 			});
 			if (!result.ok) throw new Error(result.message);
-			const text = [result.message, ...result.warnings.map((warning) => `\nПредупреждение: ${warning}`)].join("\n");
+			const warnings = [...result.warnings, ...(undelivered ? [undelivered] : [])];
+			const text = [result.message, ...warnings.map((warning) => `\nПредупреждение: ${warning}`)].join("\n");
 			return reply(text, { task: result.task, closed: result.closed });
+		},
+	});
+
+	pi.registerTool({
+		name: "volna_deliver",
+		label: "Волна: доставка",
+		description:
+			"Deliver the work to git: create the task branch, commit this part, push. Driven by the project profile " +
+			"(доставка, ветка, база, удалённый); nothing outward happens without the user's yes. status reports branch, " +
+			"changed files and what is not pushed.",
+		promptSnippet: "Create the task branch, commit the part, push",
+		promptGuidelines: [
+			"Call volna_deliver on stage deliver; profile «доставка: нет» means the stage does not exist.",
+			"Commit only after the advocate passed, and push only after the user said yes.",
+		],
+		parameters: Type.Object({
+			action: StringEnum(["status", "branch", "commit", "push"] as const),
+			message: Type.Optional(Type.String({ description: "Commit message, one line, by project convention" })),
+			files: Type.Optional(Type.Array(Type.String({ description: "Paths to stage; default all changes" }))),
+			base: Type.Optional(Type.String({ description: "Branch to fork from; default from the profile" })),
+			confirmed: Type.Optional(Type.Boolean({ description: "The user said yes to the push in the conversation" })),
+		}),
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const active = loadActive(ctx.cwd);
+			if (!active) throw new Error("Активной задачи нет: доставлять нечего. Прими задание через volna_task.");
+			const root = workspaceRoot(active.volnaDir);
+			const profile = readProfile(active.volnaDir);
+			const delivery = deliverySettings(profile);
+			if (delivery.mode === "нет") {
+				throw new Error("Профиль проекта говорит «доставка: нет»: этапа доставки в этом проекте не существует. Иди к close.");
+			}
+			if (delivery.mode === "" && params.action !== "status") {
+				throw new Error(
+					"Строка «доставка» в профиле проекта не заполнена: коммитить и ветвиться по догадке нельзя. Спроси человека (нет | commit | commit+push) и запиши ответ в .volna/project.md.",
+				);
+			}
+
+			const state = await gitState(pi.exec, root, delivery.remote, signal);
+			if (!state.repo) {
+				throw new Error(`В ${root} нет git-репозитория: доставлять некуда. Если система контроля версий другая, доставку делает человек, а профиль пусть скажет «доставка: нет».`);
+			}
+
+			const part = currentPart(partsFromState(active.stateSection));
+			const partNote = part ? ` (часть ${part.number}: ${part.title})` : "";
+
+			if (params.action === "status") {
+				return reply(
+					[
+						`Ветка: ${state.branch}${taskField(active.fm, "branch") && taskField(active.fm, "branch") !== state.branch ? ` (в журнале записана ${taskField(active.fm, "branch")})` : ""}.`,
+						`Доставка по профилю: ${delivery.mode || "не задана - спроси человека"}, удалённый ${delivery.remote}${state.hasRemote ? "" : " (такого удалённого нет)"}.`,
+						state.dirty.length ? `Незакоммиченного: ${state.dirty.length} файлов\n${state.dirty.slice(0, 40).join("\n")}` : "Рабочее дерево чистое.",
+						state.upstream ? `Upstream ${state.upstream}, не отправлено коммитов: ${state.ahead ?? "?"}.` : "Upstream не настроен: первый push поставит его.",
+						partNote ? `Текущая часть${partNote}: коммит идёт на неё.` : "",
+					]
+						.filter(Boolean)
+						.join("\n"),
+					{ branch: state.branch, dirty: state.dirty.length, ahead: state.ahead, upstream: state.upstream },
+				);
+			}
+
+			if (params.action === "branch") {
+				if (delivery.branchPattern.toLowerCase() === "нет") {
+					return reply(`Профиль не заводит ветку под задачу: работаем в текущей (${state.branch}).`, { branch: state.branch });
+				}
+				const name = branchFor(delivery.branchPattern, { id: active.task, type: taskField(active.fm, "type") || "task" });
+				const result = await ensureBranch(
+					pi.exec,
+					root,
+					{ branch: name, base: params.base || delivery.base || undefined, dirty: state.dirty.length > 0 },
+					signal,
+				);
+				if (!result.ok) throw new Error(result.message);
+				updateFrontmatter(active.journalPath, { branch: result.branch, updated: stamp() });
+				return reply(`${result.message} Ветка одна на задачу: части лягут в неё подряд.`, { branch: result.branch, created: result.created });
+			}
+
+			if (params.action === "commit") {
+				const message = (params.message ?? "").trim();
+				if (!message) throw new Error("Нужно сообщение коммита: одна строка по конвенции проекта (секция «Конвенции» в .volna/project.md).");
+				const result = await commitChanges(pi.exec, root, { message, files: params.files }, signal);
+				if (!result.ok) throw new Error(result.message);
+				if (!result.committed) return reply("Коммитить нечего: правок в дереве нет.", { committed: false });
+				appendLogSection(active.volnaDir, active.task, {
+					stage: "deliver",
+					fields: {
+						что: `коммит ${result.hash}${partNote}`,
+						зачем: "работа передана дальше: коммит закрывает часть, а не всю задачу",
+						как: `${message} · файлов ${result.files.length}: ${result.files.slice(0, 20).join(", ")}`,
+						сделано: `коммит ${result.hash} в ветке ${state.branch}`,
+						осталось: delivery.mode === "commit+push" ? "push" : "-",
+					},
+				});
+				return reply(
+					[
+						`${result.message} Ветка ${state.branch}.`,
+						delivery.mode === "commit+push" ? "Дальше push: volna_deliver action=push, только с согласия человека." : "Профиль просит только коммит: push не делаем.",
+					].join(" "),
+					{ committed: true, hash: result.hash, files: result.files },
+				);
+			}
+
+			if (delivery.mode !== "commit+push") {
+				throw new Error(`Профиль просит доставку «${delivery.mode || "не задана"}»: push не входит в неё. Спроси человека, если это изменилось.`);
+			}
+			if (!state.hasRemote) {
+				throw new Error(`Удалённого «${delivery.remote}» в репозитории нет: push некуда. Проверь строку профиля «удалённый».`);
+			}
+			const allowed = ctx.hasUI
+				? await ctx.ui.confirm("Волна: отправить ветку?", `git push ${delivery.remote} ${state.branch} - это увидят другие.`)
+				: params.confirmed === true;
+			if (!allowed) {
+				throw new Error("Push не сделан: согласия человека нет. Это единственное действие флоу, которое видно снаружи.");
+			}
+			const pushed = await pushBranch(pi.exec, root, { remote: delivery.remote, branch: state.branch, upstream: state.upstream }, signal);
+			if (!pushed.ok) throw new Error(pushed.message);
+			appendLogSection(active.volnaDir, active.task, {
+				stage: "deliver",
+				fields: {
+					что: `ветка ${state.branch} отправлена${partNote}`,
+					зачем: "работа доступна остальным",
+					как: `git push ${delivery.remote} ${state.branch}`,
+					сделано: pushed.message,
+					осталось: "-",
+				},
+			});
+			return reply(pushed.message, { pushed: true, branch: state.branch });
 		},
 	});
 
@@ -439,6 +571,22 @@ ${report.summary}` },
 /** Статус «Волны» для человека: используется командой и подсказками. */
 export function statusText(ctx: ExtensionContext): string {
 	return statusReport(ctx.cwd);
+}
+
+/**
+ * Работа, которая не доехала: незакоммиченные правки и неотправленные коммиты. Проверяется на
+ * закрытии - после него активной задачи не станет, и о забытом коммите напомнить будет некому.
+ * Доставки в профиле нет - вопроса тоже нет.
+ */
+async function undeliveredWork(exec: ExecLike, volnaDir: string, signal?: AbortSignal): Promise<string> {
+	const delivery = deliverySettings(readProfile(volnaDir));
+	if (delivery.mode === "" || delivery.mode === "нет") return "";
+	const state = await gitState(exec, workspaceRoot(volnaDir), delivery.remote, signal);
+	if (!state.repo) return "";
+	const parts: string[] = [];
+	if (state.dirty.length) parts.push(`незакоммиченных файлов ${state.dirty.length}`);
+	if (delivery.mode === "commit+push" && state.ahead) parts.push(`не отправлено коммитов ${state.ahead}`);
+	return parts.length ? `работа не доставлена: ${parts.join(", ")} - доставку делает этап deliver` : "";
 }
 
 /** Последняя секция этапа из лога: адвокату нужны критерии, а не весь лог. */

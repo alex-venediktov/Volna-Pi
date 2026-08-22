@@ -22,4 +22,4 @@ Profile line `тесты: нет` — the project has no tests and the stage doe
 not a skip. An unfilled line (`тесты: <команда>`) — ask the user how tests run.
 
 Done in the log: which tests were added or changed (files), which criteria they close, run result. Then
-`volna_stage stage=visual`, or straight to `close` with the reason if there is no visual output.
+`volna_stage stage=visual`, or straight to `deliver` with the reason if there is no visual output.

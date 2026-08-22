@@ -8,6 +8,7 @@ import { results } from "./harness.ts";
 import { run as runAdvocate } from "./advocate.test.ts";
 import { run as runAssignment } from "./assignment.test.ts";
 import { run as runChanges } from "./changes.test.ts";
+import { run as runDeliver } from "./deliver.test.ts";
 import { run as runEvents } from "./events.test.ts";
 import { run as runFlow } from "./flow.test.ts";
 import { run as runParts } from "./parts.test.ts";
@@ -20,6 +21,7 @@ const suites: Array<[string, () => Promise<void>]> = [
 	["инструменты", runTools],
 	["события расширения", runEvents],
 	["источники изменений", runChanges],
+	["доставка в git", runDeliver],
 	["дифф адвоката и визуальная проверка", runAdvocate],
 ];
 

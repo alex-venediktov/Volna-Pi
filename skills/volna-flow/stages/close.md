@@ -1,4 +1,4 @@
-# Stage 9 · close (required)
+# Stage 10 · close (required)
 
 Record the outcome and the hours, then clear the active task. Level `required`: the user starts this stage
 and the closing itself needs their explicit yes.
@@ -23,8 +23,9 @@ close. Last line of that turn: `/clear`, then `/volna:task` with no argument, wh
 next part. The last part done — close the task the usual way, without `part`, with total hours. Dropping the
 work mid-way is a full close too: the remainder goes into `left`, unfinished parts are marked снята.
 
-Commits, push and PR are not part of this flow — the user does them when they see fit. Volna only warns if
-the current stage has no journal entry yet.
+Delivery happened on `deliver`. If the profile has no `доставка` line, commits are the user's own business —
+Volna only warns when the current stage has no journal entry yet, and when work is left uncommitted or
+unpushed at the full close.
 
 No code was needed? `intake → analyze → close` is a legal path («no changes required»). No empty or fake
 commit in that case, and the journal matters just as much: it holds the explanation.

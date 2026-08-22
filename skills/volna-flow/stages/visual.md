@@ -22,4 +22,4 @@ chrome-devtools`. `нет` or no web output — the stage does nothing.
 This does not replace tests: one green browser scenario says nothing about the branches it did not touch.
 
 Done in the log: what was opened and with which steps, the automation verdict, the screenshot path, the
-user's verdict if given. Then `volna_stage stage=close`.
+user's verdict if given. Then `volna_stage stage=deliver`.
