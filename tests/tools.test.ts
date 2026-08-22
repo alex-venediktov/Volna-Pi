@@ -1,12 +1,11 @@
 /** Инструменты вызываются тем же путём, каким их вызывает модель: через registerTools. */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { initVolna } from "../extensions/volna/init.ts";
 import { loadActive, readState } from "../extensions/volna/state.ts";
 import { registerTools } from "../extensions/volna/tools.ts";
 import { check, exec, sandbox, toolText } from "./harness.ts";
 
-const TOOL_NAMES = ["volna_task", "volna_stage", "volna_journal", "volna_advocate", "volna_visual", "volna_finish", "volna_recall"];
+const TOOL_NAMES = ["volna_init", "volna_task", "volna_stage", "volna_journal", "volna_advocate", "volna_visual", "volna_finish", "volna_recall"];
 
 export async function run(): Promise<void> {
 	const dir = sandbox("tools");
@@ -34,7 +33,7 @@ export async function run(): Promise<void> {
 	}
 	check("без .volna задание не принимается", refusal.includes("не развёрнута"), refusal.slice(0, 50));
 
-	initVolna(dir);
+	check("модель может развернуть Волну сама", toolText(await call("volna_init", {})).includes("развёрнута"), toolText(await call("volna_init", {})).slice(0, 60));
 	const volnaDir = join(dir, ".volna");
 
 	check("задание принято инструментом", toolText(await call("volna_task", { assignment: "Добавить экспорт отчёта в CSV" })).includes("Задача принята"));

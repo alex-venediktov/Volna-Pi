@@ -12,6 +12,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { runAdvocate } from "./advocate.ts";
 import { enterStage, intake, skipStage, statusReport } from "./core.ts";
+import { initVolna } from "./init.ts";
 import { appendLogSection, journalIssues, stamp, writeStateSection } from "./journal.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { displayPath, loadActive, profileValue, readProfile, taskField, taskList, updateFrontmatter, writeState } from "./state.ts";
@@ -39,6 +40,23 @@ function reply(text: string, details: Record<string, unknown> = {}) {
 }
 
 export function registerTools(pi: ExtensionAPI): void {
+	pi.registerTool({
+		name: "volna_init",
+		label: "Волна: развернуть",
+		description:
+			"Deploy Volna in this repository: create .volna with the project profile and journal directories, " +
+			"add ignore rules. Call it when a Volna tool says Volna is not deployed here.",
+		promptSnippet: "Deploy Volna in this repository (.volna, profile, journal)",
+		promptGuidelines: ["If a Volna tool reports that Volna is not deployed, call volna_init instead of asking the user to run a command."],
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			const existing = findVolnaDir(ctx.cwd);
+			if (existing) return reply(`«Волна» уже развёрнута: ${existing}`, { volnaDir: existing });
+			const result = initVolna(ctx.cwd);
+			return reply(result.message, { volnaDir: result.volnaDir, created: result.created });
+		},
+	});
+
 	pi.registerTool({
 		name: "volna_task",
 		label: "Волна: принять задание",
