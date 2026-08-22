@@ -1,31 +1,25 @@
-# Этап 7 · unit-tests — тесты · expected
+# Stage 7 · unit-tests (expected)
 
-Задача этапа - **закрыть критерии приёмки проверками**, которые останутся в проекте и упадут, если
-поведение сломают снова.
+Close the acceptance criteria with checks that stay in the project and fail when the behaviour breaks again.
 
-## Порядок
-1. **Взять критерии приёмки из `spec`** и превратить каждый в тест. Критерий без теста - это
-   утверждение на честном слове.
-2. **Смотреть на соседние тесты**: имена, структура, способ подготовки данных. Конвенции проекта
-   главнее общих привычек; своя манера в чужом наборе тестов - это шум в каждом будущем ревью.
-3. **Имя теста - утверждение о поведении**, а не «test1» и не «проверка функции». Читающий должен
-   понять, что сломано, по одному имени упавшего теста.
-4. **Краевые случаи из `analyze`**: пустой ввод, границы диапазонов, ранние выходы, ветви, которые
-   разбирались. Тест только на счастливый путь оставляет ровно те дефекты, которые ищет адвокат.
-5. **Запустить командой из профиля** (`тесты: <команда>`). Красные тесты - результат этапа: находка
-   идёт в журнал, и открывается новая итерация `implement` с причиной.
-6. **Одноразовые диагностические леса в коммит не идут.** Нужен был скрипт, чтобы что-то понять -
-   он остаётся вне репозитория, а вывод - в журнале.
+1. **Take the criteria from `spec`** and turn each into a test. A criterion without a test is a claim on
+   trust.
+2. **Look at the neighbouring tests**: names, structure, how data is prepared. Project conventions beat
+   general habits; your own style inside someone else's suite is noise in every future review.
+3. **The test name is a claim about behaviour**, not `test1`. The reader should know what broke from the
+   name of the failing test alone.
+4. **Edge cases from `analyze`**: empty input, range boundaries, early exits, the branches you studied. A
+   happy-path-only test leaves exactly the defects the advocate hunts.
+5. **Run with the profile command** (`тесты`). Red tests are the stage's result: the finding goes into the
+   journal and a new `implement` iteration opens with that reason.
+6. **One-off diagnostic scaffolding is not committed.** Needed a script to understand something? It stays
+   outside the repository; its output goes into the journal.
 
-## Чего на этапе не делают
-Не подгоняют тест под текущее поведение кода. Тест, написанный «чтобы зелёное», хуже отсутствия
-теста: он фиксирует дефект как норму.
+Never fit a test to the current behaviour. A test written to be green is worse than no test: it fixes the
+defect as the norm.
 
-## Профиль без тестов
-Строка `тесты: нет` - тестов в проекте нет, и этап ничего не делает: это отсутствующий шаг, а не
-пропуск. Строка не заполнена (`тесты: <команда>`) - спросить человека, чем запускаются тесты.
+Profile line `тесты: нет` — the project has no tests and the stage does nothing; that is an absent step,
+not a skip. An unfilled line (`тесты: <команда>`) — ask the user how tests run.
 
-## DoD
-В журнале: какие тесты добавлены или изменены (файлы), какие критерии они закрывают, результат
-прогона. Дальше - `volna_stage` со `stage=visual`, а если визуального выхода у работы нет - сразу
-`stage=close`, причина пропуска строкой.
+Done in the log: which tests were added or changed (files), which criteria they close, run result. Then
+`volna_stage stage=visual`, or straight to `close` with the reason if there is no visual output.

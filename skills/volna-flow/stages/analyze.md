@@ -1,33 +1,23 @@
-# Этап 2 · analyze — разбор задания · expected
+# Stage 2 · analyze (expected)
 
-Задача этапа - **понять предмет по коду**, а не по своим представлениям о нём. На выходе: где
-живёт затронутое поведение, что на него влияет, чего в задании не хватает.
+Understand the subject from the code, not from assumptions. Output: where the affected behaviour
+lives, what influences it, what the assignment does not say.
 
-## Порядок
-1. **Вспомнить накопленное**: `volna_recall` по словам задания. Прошлый журнал по той же теме
-   экономит весь этап; запись знаний может прямо запрещать путь, который выглядит очевидным.
-2. **Найти места в коде.** Искать поиском (`grep`, `find`), а не чтением файлов целиком: один
-   невнимательный `read` большого файла стоит дороже всего этапа. Читать - адресно, по найденным
-   строкам.
-3. **Разобрать похожие места.** Как уже решается такая же задача рядом? Конвенции проекта здесь
-   узнаются точнее, чем из документации.
-4. **Проверить границы**: кто ещё вызывает затронутый код, какие ветви существуют, какие ранние
-   выходы и краевые случаи есть.
-5. **Эталон, если он есть в профиле** (`эталон: <путь или система>`): найти соответствующий код
-   эталона и выписать ссылки на конкретные строки. Правило порта - строго 1:1, без эвристик и
-   подгонки под результат; расхождение с эталоном - СТОП-критерий.
-6. **Выписать вопросы**, на которые не отвечает ни задание, ни код. Это будущие открытые вопросы
-   (`volna_journal`, action=open) и материал для `spec`.
+1. `volna_recall` first — a past journal on the same theme saves the whole stage.
+2. Find the places by search (`grep`, `find`), not by reading whole files: one careless full read of a
+   large file costs more than this stage. Read only the lines the search points at.
+3. Look at how a similar case is already solved nearby — that is where project conventions really are.
+4. Check the edges: who else calls the affected code, which branches exist, which early exits and
+   boundary cases are there.
+5. Reference implementation, if the profile names one (`эталон`): find the matching code and note exact
+   line references. Porting is 1:1, no heuristics, no fitting to the desired result; a divergence from
+   the reference is a stop, not a guess.
+6. Write down the questions neither the assignment nor the code answers — they become open questions
+   (`volna_journal action=open`) and material for `spec`.
 
-## Чего на этапе не делают
-Правок кода. Гейт «Волны» их и не пропустит: работа пока читающая. Понадобилась проба - это уже
-`implement` с явной причиной в reason.
+No code edits here — the gate blocks them. Need a probe? That is `implement` with an explicit reason.
 
-## СТОП-критерии
-- Затронутое поведение не нашлось в коде вовсе: спросить человека, где оно живёт.
-- Задание противоречит тому, что делает код: это расхождение, а не «уточню по ходу».
+Stop and ask when: the behaviour is nowhere in the code; the assignment contradicts what the code does.
 
-## DoD
-В журнале (`volna_journal`, action=log): что искал и чем, какие файлы и строки затронуты, какие
-похожие места нашлись, какие вопросы остались, что дала память (`volna_recall`) - в том числе
-«по теме записей нет». Дальше - `volna_stage` со `stage=spec`.
+Done in the log: what you searched and how, files and lines, similar places, remaining questions, what
+recall gave (including «nothing on this theme»). Then `volna_stage stage=spec`.

@@ -21,12 +21,13 @@ export async function run(): Promise<void> {
 	initVolna(dir);
 	const volnaDir = join(dir, ".volna");
 
-	const diff = await collectDiff(exec, volnaDir, "test-task", "HEAD");
+	const diff = await collectDiff(exec, volnaDir, "test-task", "HEAD", {});
 	const body = readFileSync(diff.path, "utf8");
 	check("дифф собран", !diff.empty);
 	check("изменённая строка в диффе", body.includes("if (!items.length)"));
 	check("новый файл в диффе", body.includes("empty-state.js") && body.includes("EMPTY"));
 	check("бинарный файл не вставлен", body.includes("бинарный файл"), "blob.bin");
+	check("источник изменений назван", diff.kind === "git", diff.kind);
 	check("сводка изменений есть", diff.stat.includes("list.js"));
 	check("дифф лежит в .volna/advocate", diff.path.includes("advocate"));
 	check("служебное «Волны» в дифф не попало", !body.includes("новый файл, ещё не в индексе: .volna"));

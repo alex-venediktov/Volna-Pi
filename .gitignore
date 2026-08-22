@@ -4,4 +4,5 @@ node_modules/
 .volna/journal/
 .volna/visual/
 .volna/advocate/
+.volna/baseline/
 package-lock.json

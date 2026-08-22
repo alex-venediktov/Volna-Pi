@@ -1,112 +1,92 @@
 ---
 name: volna-flow
-description: Ведение одной задачи по мягкому флоу этапов - приём задания текстом, разбор, постановка, план, итерации реализации с адвокатом дьявола, тесты, визуальная проверка, закрытие. Журнал работ ведётся инструментами volna_stage и volna_journal. Используй, когда человек ставит задачу текстом, спрашивает «что дальше», просит перейти к этапу или вернуться, либо когда в .volna/state.json есть активная задача.
+description: "Volna flow: run one task from a text assignment through analyze, spec, plan, implement with adversarial review, tests and an optional browser check to closing, keeping a work journal. Use when the user states a task, asks what is next, wants to move between stages, or when .volna/state.json holds an active task."
 ---
 
-# Волна: флоу задачи
+# Volna flow
 
-Провести работу от задания до закрытия **в одном контексте**, накапливая журнал, по которому
-задача восстанавливается с нуля. Флоу - **предпочтительный порядок, а не рельсы**: решение всегда
-за человеком.
+Take one task from assignment to closing **in one context**, keeping a journal the task can be restored
+from. The flow is the preferred order, not rails: the user decides.
 
-Работает только там, где развёрнута проектная часть: в корне репозитория есть каталог `.volna/`.
-Нет каталога - сказать об этом одной строкой, предложить `/volna:init` и остановиться. Журнал в
-чужом репозитории не создавать.
+Works only where the project part is deployed — `.volna/` in the repository root. No directory: say so in
+one line, offer `/volna:init`, stop. Never create a journal in someone else's repository.
 
-## Инструменты вместо ручной разметки
+## Tools do the bookkeeping
 
-| Что нужно | Чем делается |
+| Need | Tool |
 |---|---|
-| принять задание | `volna_task` (или `/volna:task <текст или путь>`) |
-| перейти на этап, открыть новую итерацию, пропустить этап | `volna_stage` |
-| записать секцию этапа, переписать «Состояние», обновить открытые вопросы | `volna_journal` |
-| проверить свои изменения | `volna_advocate` |
-| проверить веб-выход в браузере | `volna_visual` |
-| вспомнить, что уже было по теме | `volna_recall` |
-| закрыть задачу | `volna_finish` |
+| accept an assignment | `volna_task` |
+| enter a stage, open a new iteration, skip a stage | `volna_stage` |
+| write the journal (log section, Status, open questions) | `volna_journal` |
+| review your own changes | `volna_advocate` |
+| check the web output in a browser | `volna_visual` |
+| recall what was already done on the theme | `volna_recall` |
+| close the task | `volna_finish` |
 
-Markdown журнала руками не писать: формат секции, номер итерации и метку времени ставит
-инструмент. Метка берётся у часов машины - по ней считаются часы на закрытии, а модель текущего
-времени не знает.
+Never write journal markdown by hand: the tool sets the format, the iteration number and the timestamp.
+The timestamp comes from the machine clock — the hours at closing are counted from it.
 
-## Три уровня этапов
+Each stage returns its own instructions through `volna_stage`; do not read `stages/*.md` yourself.
 
-| Уровень | Смысл | Поведение |
-|---|---|---|
-| **required** | нужно решение человека | не выполнять без явного «да» |
-| **expected** | по умолчанию делаем | пропуск возможен, причина - в журнал (`volna_stage`, action=skip) |
-| **optional** | по ситуации | нет предмета - сказать строкой и идти дальше |
+## Stages
 
-## Этапы
-
-| # | Этап | Уровень | О чём |
+| # | Stage | Level | About |
 |---|---|---|---|
-| 1 | `intake` | required | принять задание текстом или файлом, карточка, журнал |
-| 2 | `analyze` | expected | разбор задания: код, похожие места, вопросы |
-| 3 | `spec` | expected | постановка своими словами, критерии приёмки, расхождения |
-| 4 | `plan` | expected | план правок по файлам, порядок, риски |
-| 5 | `implement` | expected | итерация правок по плану |
-| 6 | `advocate` | expected | адвокат дьявола против своего решения, по полному диффу |
-| 7 | `unit-tests` | expected | тесты по конвенциям проекта |
-| 8 | `visual` | optional | браузер, ошибки консоли, скриншот |
-| 9 | `close` | required | итог, часы в журнал, завершение задачи |
+| 1 | `intake` | required | accept the assignment (text or .md), card, journal |
+| 2 | `analyze` | expected | study the code, similar places, questions |
+| 3 | `spec` | expected | statement in your own words, acceptance criteria |
+| 4 | `plan` | expected | edits by file, order, risks |
+| 5 | `implement` | expected | one iteration of edits |
+| 6 | `advocate` | expected | adversarial review of the changes |
+| 7 | `unit-tests` | expected | tests by project convention |
+| 8 | `visual` | optional | browser, console errors, screenshot |
+| 9 | `close` | required | outcome, hours, clear the active task |
 
-Доставки в этой версии нет: коммит, push, PR и трекер - вне флоу. Коммит человек делает сам,
-когда считает нужным; «Волна» только напомнит, если по этапу нет записи в журнале.
+Levels: **required** needs a decision from the user; **expected** is done by default and skipped only with
+a reason in the journal; **optional** happens when there is a subject for it.
 
-Инструкцию этапа выдаёт `volna_stage` - отдельно читать `stages/<этап>.md` не нужно.
+No delivery in this version: commit, push, PR and issue trackers are outside the flow.
 
-## Цикл реализации
+`implement` ⇄ `advocate` cycles until the verdict is clean. Any further code change is a new `implement`
+iteration, and the advocate runs again after it — one passed review does not cover code changed later.
 
-`implement` → `advocate` крутится до вердикта «чисто». Любая доработка кода - **новая итерация
-`implement`**, и после неё адвокат снова: правки по находкам адвоката, по красным тестам, по
-вердикту визуальной проверки - тот же цикл. Один пройденный адвокат не покрывает код, изменённый
-после него.
+## Autopass
 
-## Автопроход
+Stages 2–8 run **as one chain in the same turn**: a stage closes, then `volna_stage` for the next one
+immediately, without waiting for a command. Write a line «stage X closed, going to Y» as you go.
 
-Этапы 2-8 идут **одной цепочкой в том же ходе**: этап закрыт - сразу `volna_stage` на следующий,
-не отдавая ход человеку и не дожидаясь команды. Строка «этап X закрыт, иду в Y» пишется по ходу дела.
+The turn goes back to the user only when it must:
 
-Ход отдаётся человеку только там, где иначе нельзя:
+- a fork the flow does not resolve;
+- a stop-criterion: ambiguous statement, missing data or access, divergence from the reference;
+- the user themself is needed: a verdict on a picture, an answer from `spec`, a look at the changes;
+- the `close` boundary — the user starts closing.
 
-- **развилка**, которую флоу не решает;
-- **СТОП-критерий**: постановка неоднозначна, нет данных или доступа, расхождение с эталоном;
-- **нужен сам человек**: вердикт на картинке, ответ на вопрос из `spec`, взгляд на дифф;
-- **граница `close`**: закрытие задачи человек начинает сам.
+On long work a checkpoint is a step inside the chain, not a stop: rewrite Status (`volna_journal
+action=state`) at a stage boundary. Context runs out before the chain reaches the end, and what was
+written in an interrupted turn is lost entirely.
 
-На длинной работе чек-пойнт - шаг внутри цепочки, а не остановка: на границе этапа перезаписать
-«Состояние» (`volna_journal`, action=state). Контекст кончается раньше, чем цепочка доходит до
-закрытия, и записанное в оборванном ходе теряется целиком.
+## Duties on every stage
 
-## Обязанности на каждом этапе
+1. **Log section at the end of the stage** (`action=log`). Without it the stage counts as unfinished.
+2. **Status before handing the turn back** and at a checkpoint (`action=state`); once per chain is enough.
+3. **Open questions** (`action=open`) — only what waits for the user or external data, not notes.
+4. **A negative result is a record too**: «checked hypothesis X, did not hold, because…».
+5. **References, not retelling**: file and lines, command, knowledge entry. The journal must be re-checkable.
+6. **A secret the user says out loud** (token, password, connection string) goes into a file outside the
+   repository, and only its path goes into settings. Never into the journal. Tell the user at once that the
+   secret passed through session history and is worth rotating.
 
-1. **Секция в лог в конце этапа** - `volna_journal`, action=log. Без записи этап считается
-   незакрытым, и следующий `volna_stage` об этом скажет.
-2. **«Состояние» - на границе отдачи хода** и на чек-пойнте, `volna_journal` action=state. Внутри
-   автопрохода хватает одной перезаписи в конце цепочки.
-3. **Открытые вопросы** (`action=open`) - только то, что ждёт человека или внешних данных. Это не
-   список заметок: первые строки идут в виджет и в шапку.
-4. **Отрицательный результат - тоже запись**: «проверил гипотезу X, не подтвердилась, потому что…».
-5. **Ссылки, а не пересказ**: файл и строки, команда, номер записи знаний. Журнал должен быть
-   перепроверяемым.
-6. **Секрет, названный человеком в разговоре** (токен, пароль, строка подключения), кладётся в файл
-   вне репозитория, в настройку идёт путь к файлу. В журнал значение не попадает никогда; человеку
-   сразу сказать, что секрет прошёл через историю сессии и его стоит перевыпустить.
+## Project profile
 
-## Профиль проекта
+`## Профиль` in `.volna/project.md` says what the project consists of. Rule: **what the profile does not
+list, the stage does not do** — silently, without a «skipped» record. A value in angle brackets means «not
+asked yet»: stop and ask, never guess.
 
-Секция `## Профиль` в `.volna/project.md` говорит, из чего проект состоит. Правило одно: **чего в
-профиле нет, того этап не делает** - молча, без записи «пропущено».
+## Coming back to a task
 
-У строки три состояния: заполнена (работать по ней), **плейсхолдер в угловых скобках** (не
-спрошено - остановиться и спросить, догадка запрещена), строки нет вовсе (значит и предмета нет).
+After `/clear` or a restart the active task and its Status arrive on session start. Then `volna_stage` for
+the current stage returns the instructions and context. Never read the log whole — it is opened by address
+when Status points at it. Status beats the log: the log answers «how we got here», not «where things stand».
 
-## Возврат к задаче
-
-После `/clear` или перезапуска: активная задача и её «Состояние» приходят сами при старте сессии.
-Дальше - `volna_stage` на текущий этап: он вернёт инструкцию и контекст. Лог целиком не читать,
-он открывается адресно, когда «Состояние» на него ссылается. При противоречии «Состояние» важнее
-лога: лог отвечает на вопрос «как к этому пришли», а не «как обстоят дела».
-
-Формат журнала и что в нём где лежит - скилл `volna-journal`.
+Journal format: skill `volna-journal`.

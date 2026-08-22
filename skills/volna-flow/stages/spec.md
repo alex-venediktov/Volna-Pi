@@ -1,29 +1,23 @@
-# Этап 3 · spec — постановка своими словами · expected
+# Stage 3 · spec (expected)
 
-Задача этапа - **пересказать задание своими словами и получить подтверждение**. Расхождение между
-тем, что просили, и тем, что понято, дешевле всего стоит именно здесь.
+Retell the assignment in your own words and get it confirmed. A misunderstanding is cheapest to fix here.
 
-## Что написать
-1. **Постановка своими словами**: 3-6 строк. Не переписывание задания, а его смысл: что изменится
-   для пользователя и почему это нужно.
-2. **Критерии приёмки** - список проверяемых утверждений. «Работает корректно» критерием не
-   является; «при пустом списке показывается заглушка, запросов к серверу нет» - является.
-   По этим критериям адвокат будет проверять дифф, а тесты - превращаться в проверки.
-3. **Что в объём не входит.** Явная граница избавляет от расползания работы и от вопросов «а это
-   тоже надо было?».
-4. **Расхождения и вопросы**: что в задании противоречит коду, чего не хватает. Вопросы, без
-   ответа на которые нельзя планировать, - в открытые вопросы (`volna_journal`, action=open),
-   и это тот случай, когда ход отдаётся человеку.
+Write:
 
-## Когда отдавать ход
-Есть вопрос, от ответа на который зависит план, - остановиться и спросить **вариантами**: первым
-тот, который предписывает флоу или который следует из кода. Вопросов нет - идти дальше в том же
-ходе, не спрашивая разрешения.
+1. **The statement**, 3–6 lines: what changes for the user and why it is needed. Not a paraphrase of
+   the assignment — its meaning.
+2. **Acceptance criteria** — checkable claims. «Works correctly» is not one; «empty list shows the
+   placeholder and makes no server request» is. The advocate checks the diff against these, and tests
+   turn them into assertions.
+3. **Out of scope** — an explicit boundary stops the work from creeping.
+4. **Divergences and questions**: what contradicts the code, what is missing. Anything that blocks
+   planning goes to `volna_journal action=open` — and that is when the turn goes back to the user.
 
-## СТОП-критерии
-- Критерии приёмки не формулируются, потому что непонятно ожидаемое поведение.
-- Задание требует поведения, противоречащего существующему, и неясно, что из них правильно.
+Ask with options when you must ask: the first option is the one the flow or the code implies. No
+blocking question — continue in the same turn without asking permission.
 
-## DoD
-В журнале: постановка, критерии приёмки, границы объёма, открытые вопросы (или явное «вопросов
-нет»). Дальше - `volna_stage` со `stage=plan`.
+Stop and ask when: criteria cannot be written because the expected behaviour is unknown; the assignment
+demands behaviour that contradicts existing correct behaviour.
+
+Done in the log: statement, criteria, scope boundary, open questions (or an explicit «none»). Then
+`volna_stage stage=plan`.

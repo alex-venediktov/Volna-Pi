@@ -54,30 +54,30 @@ export function stageInstructions(name: string): string {
 	}
 }
 
-/** Обязанности этапа. Идут перед инструкцией, чтобы запись в журнал не зависела от текста этапа. */
+/**
+ * Обязанности этапа: короткий блок перед инструкцией. По-английски, потому что платится он каждым
+ * входом в этап, а токенизаторы локальных моделей на английском экономнее; язык ответов и журнала
+ * задаётся здесь же отдельной строкой.
+ */
 export function stageDuties(stage: Stage, ctx: { task: string; journalRel: string; logRel: string; iteration: number }): string {
-	const lines = [
-		`## Обязанности на этапе (уровень: ${stage.level})`,
+	const level =
+		stage.level === "required"
+			? "required: the irreversible action of this stage needs an explicit yes from the user."
+			: stage.level === "expected"
+				? "expected: done by default; skipping needs a reason in the journal (volna_stage action=skip)."
+				: "optional: by situation. Not needed - say so in one line and move on.";
+	return [
+		`## Duties (level: ${stage.level})`,
 		"",
-		`1. Работать по инструкции ниже. Задача ${ctx.task}, итерация этапа ${ctx.iteration}.`,
-		`2. В конце этапа записать секцию в лог: инструмент volna_journal, action=log. Формат и метку времени`,
-		"   ставит инструмент - руками markdown журнала не писать.",
-		"3. На границе отдачи хода человеку и перед сжатием контекста переписать «Состояние»:",
-		"   volna_journal, action=state. Внутри автопрохода хватает одной перезаписи в конце цепочки.",
-		"4. Переход на следующий этап - volna_stage, а не текст «перехожу к…»: этап в журнале ставит инструмент.",
-	];
-	if (stage.level === "required") {
-		lines.push("5. Уровень required: необратимое действие этапа делать только по явному «да» человека.");
-	} else if (stage.level === "expected") {
-		lines.push("5. Уровень expected: этап проходится по умолчанию, пропуск - с причиной в журнал (volna_stage, skip).");
-	} else {
-		lines.push("5. Уровень optional: этап по ситуации. Не нужен - сказать одной строкой и идти дальше.");
-	}
-	lines.push(
+		`Task ${ctx.task}, stage iteration ${ctx.iteration}. Journal: ${ctx.journalRel} (status), ${ctx.logRel} (append-only log).`,
 		"",
-		`Журнал задачи: ${ctx.journalRel} (состояние), ${ctx.logRel} (лог итераций, append-only).`,
-		"Сработал СТОП-критерий (постановка неоднозначна, нет данных, нужен доступ) - остановиться и спросить,",
-		"а не достраивать на догадках.",
-	);
-	return lines.join("\n");
+		"1. Work per the instructions below.",
+		"2. End the stage with volna_journal action=log. The tool sets format and timestamp - never write journal markdown by hand.",
+		"3. Rewrite Status (action=state) before handing the turn back and before compaction; once per chain is enough inside a run.",
+		"4. Change stage with volna_stage, never by just saying so.",
+		`5. ${level}`,
+		"",
+		"Stop and ask on a stop-criterion (ambiguous statement, missing data or access) instead of guessing.",
+		"Talk to the user in Russian; journal entries in Russian.",
+	].join("\n");
 }

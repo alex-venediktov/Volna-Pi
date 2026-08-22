@@ -7,7 +7,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { asList } from "./frontmatter.ts";
+import { needsSnapshot, snapshotExists, takeSnapshot } from "./changes.ts";
 import {
 	appendLogSection,
 	createJournal,
@@ -175,6 +175,15 @@ export function enterStage(cwd: string, stageName: string, options: EnterStageOp
 		warnings.push(`этап ${previousStage} закрыт без записи в лог - запись придётся дописать (volna_journal, action=log)`);
 	}
 
+	// Снимок дерева нужен до правок: в проекте без системы контроля версий сравнивать иначе нечем,
+	// а понять задним числом, что было до правок, невозможно.
+	if (stage.name === "implement" && needsSnapshot(volnaDir, readProfile(volnaDir)) && !snapshotExists(volnaDir, active.task)) {
+		const snapshot = takeSnapshot(volnaDir, active.task, readProfile(volnaDir));
+		warnings.push(
+			`системы контроля версий в проекте нет - снял снимок дерева (${snapshot.files} файлов), по нему адвокат увидит правки`,
+		);
+	}
+
 	const paths = volnaPaths(volnaDir);
 	const header = [
 		`# Этап ${stagePosition(stage.name)} · ${stage.name} · ${stage.title}`,
@@ -334,23 +343,19 @@ export function journalWarnings(active: ActiveTask): string[] {
 
 /** Контекст задачи в инструкции этапа: то, что нужно после /clear, и ничего больше. */
 function taskContextBlock(active: ActiveTask, volnaDir: string): string {
-	const lines = ["## Контекст задачи", ""];
-	lines.push(`- задача: ${active.task} — ${taskField(active.fm, "title") || "(без названия)"}`);
-	lines.push(`- тип: ${taskField(active.fm, "type") || "?"}, источник задания: ${taskField(active.fm, "source") || "?"}`);
+	const lines = ["## Task", ""];
+	lines.push(`${active.task} — ${taskField(active.fm, "title") || "(no title)"} · type ${taskField(active.fm, "type") || "?"}`);
 	const branch = taskField(active.fm, "branch");
-	if (branch) lines.push(`- ветка: ${branch}`);
+	if (branch) lines.push(`branch: ${branch}`);
 	const done = taskList(active.fm, "stages_done");
-	if (done.length) lines.push(`- пройдено: ${done.join(", ")}`);
+	if (done.length) lines.push(`passed: ${done.join(", ")}`);
 	const skipped = taskList(active.fm, "skipped");
-	if (skipped.length) lines.push(`- пропущено: ${skipped.join("; ")}`);
+	if (skipped.length) lines.push(`skipped: ${skipped.join("; ")}`);
 	const open = taskList(active.fm, "open");
-	if (open.length) lines.push(`- открыто: ${open.join("; ")}`);
-	if (active.stateSection) {
-		lines.push("", "«Состояние» из журнала (картина на сейчас):", "", active.stateSection);
-	} else {
-		lines.push("", "В журнале нет секции «Состояние» - перепиши её на границе отдачи хода.");
-	}
-	lines.push("", `Полный журнал: ${displayPath(volnaDir, active.journalPath)}. Лог читать адресно, не целиком.`);
+	if (open.length) lines.push(`open: ${open.join("; ")}`);
+	if (active.stateSection) lines.push("", "Status from the journal:", "", active.stateSection);
+	else lines.push("", "No Status section yet - write it before handing the turn back.");
+	lines.push("", `Journal: ${displayPath(volnaDir, active.journalPath)}. Read the log by address, never whole.`);
 	return lines.join("\n");
 }
 
@@ -361,22 +366,12 @@ function taskContextBlock(active: ActiveTask, volnaDir: string): string {
 function profileBlock(volnaDir: string): string {
 	const profile = readProfile(volnaDir);
 	const keys = ["тесты", "сборка", "запуск", "визуальная проверка", "эталон", "трекер", "вики", "kb"];
-	const lines: string[] = [];
-	for (const key of keys) {
-		const value = profileValue(profile, key);
-		if (value) lines.push(`- ${key}: ${value}`);
-	}
+	const filled = keys.filter((key) => profileValue(profile, key)).map((key) => `${key}: ${profileValue(profile, key)}`);
 	const unanswered = keys.filter((key) => profile[key] && !profileValue(profile, key));
-	if (!lines.length && !unanswered.length) return "";
-	const out = ["## Профиль проекта", ""];
-	out.push(...lines);
-	if (unanswered.length) {
-		out.push(
-			"",
-			`Не заполнены строки профиля: ${unanswered.join(", ")}. Понадобилась - спроси человека и впиши в .volna/project.md, не догадывайся.`,
-		);
-	}
-	out.push("", "Чего в профиле нет - того этап не делает: это отсутствующий шаг, а не пропуск этапа.");
+	if (!filled.length && !unanswered.length) return "";
+	const out = ["## Project profile", "", filled.join(" · ")];
+	if (unanswered.length) out.push(`unanswered: ${unanswered.join(", ")} - ask the user, do not guess`);
+	out.push("What the profile does not list, the stage does not do: an absent step, not a skipped stage.");
 	return out.join("\n");
 }
 

@@ -42,17 +42,13 @@ export function registerTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "volna_task",
 		label: "Волна: принять задание",
-		description:
-			"Принять задание в работу: создать журнал задачи и открыть этап intake. Задание передаётся текстом " +
-			"или путём к md-файлу. Возвращает карточку задачи и следующий шаг флоу.",
-		promptSnippet: "Принять задание в работу «Волны» (создаёт журнал задачи)",
-		promptGuidelines: [
-			"Вызывай volna_task, когда человек ставит задачу текстом или файлом и хочет вести её по флоу «Волны».",
-		],
+		description: "Start a task: create its journal, open stage intake. Input is the assignment text or a path to an .md file.",
+		promptSnippet: "Start a Volna task (creates the task journal)",
+		promptGuidelines: ["Call volna_task when the user states a task to be tracked by Volna."],
 		parameters: Type.Object({
-			assignment: Type.String({ description: "Текст задания дословно либо путь к md-файлу с постановкой" }),
-			title: Type.Optional(Type.String({ description: "Короткое название задачи; по умолчанию первая значимая строка задания" })),
-			type: Type.Optional(StringEnum(TASK_TYPES, { description: "Тип задачи, по умолчанию task" })),
+			assignment: Type.String({ description: "Assignment text verbatim, or path to an .md file" }),
+			title: Type.Optional(Type.String({ description: "Short task name; defaults to first meaningful line" })),
+			type: Type.Optional(StringEnum(TASK_TYPES, { description: "Default: task" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const result = intake(ctx.cwd, { assignment: params.assignment, title: params.title, type: params.type });
@@ -65,18 +61,16 @@ export function registerTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "volna_stage",
 		label: "Волна: этап",
-		description:
-			"Перейти на этап флоу или открыть его новую итерацию (action=enter), либо пропустить этап с причиной " +
-			"(action=skip). Возвращает инструкцию этапа и контекст задачи. Этап и номер итерации записываются в журнал.",
-		promptSnippet: "Перейти на этап флоу «Волны» или пропустить его с причиной",
+		description: "Enter a flow stage (or reopen it as a new iteration), or skip it with a reason. Returns the stage instructions and task context.",
+		promptSnippet: "Enter or skip a Volna flow stage",
 		promptGuidelines: [
-			"Переход между этапами делай вызовом volna_stage, а не текстом «перехожу к этапу»: этап в журнале ставит инструмент.",
-			"Повторный вызов volna_stage на пройденный этап открывает новую итерацию - передавай reason с причиной возврата.",
+			"Always change stage by calling volna_stage, never by just saying so: the tool is what records it.",
+			"Calling it for an already passed stage opens iteration N+1 - pass reason.",
 		],
 		parameters: Type.Object({
-			stage: StringEnum(STAGE_NAMES as unknown as readonly string[], { description: "Имя этапа флоу" }),
-			action: Type.Optional(StringEnum(["enter", "skip"] as const, { description: "enter - войти в этап (по умолчанию), skip - пропустить с причиной" })),
-			reason: Type.Optional(Type.String({ description: "Причина: возврата на пройденный этап либо пропуска этапа" })),
+			stage: StringEnum(STAGE_NAMES as unknown as readonly string[]),
+			action: Type.Optional(StringEnum(["enter", "skip"] as const, { description: "Default: enter" })),
+			reason: Type.Optional(Type.String({ description: "Why returning to the stage, or why skipping it" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const result =
@@ -93,34 +87,34 @@ export function registerTools(pi: ExtensionAPI): void {
 		name: "volna_journal",
 		label: "Волна: журнал",
 		description:
-			"Запись в журнал задачи. action=log дописывает секцию этапа в append-only лог (метку времени и формат " +
-			"ставит инструмент). action=state перезаписывает секцию «Состояние», по которой задача восстанавливается " +
-			"с нуля. action=open обновляет список открытых вопросов. action=check возвращает, что мешает восстановлению.",
-		promptSnippet: "Запись в журнал задачи: секция этапа, «Состояние», открытые вопросы",
+			"Write the task journal, content in Russian. log: append a stage section (what/why/how/done/left...). " +
+			"state: rewrite the Status the task is restored from (goal, done, next required). open: set open questions. " +
+			"check: report what breaks restoration.",
+		promptSnippet: "Write the task journal (log section, Status, open questions)",
 		promptGuidelines: [
-			"В конце каждого этапа вызывай volna_journal с action=log - без записи этап считается незакрытым.",
-			"Перед отдачей хода человеку и перед сжатием контекста вызывай volna_journal с action=state.",
+			"End every stage with volna_journal action=log; without it the stage counts as unfinished.",
+			"Before handing the turn back to the user and before compaction, call action=state.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(["log", "state", "open", "check"] as const),
-			stage: Type.Optional(Type.String({ description: "Этап записи; по умолчанию текущий этап задачи" })),
-			what: Type.Optional(Type.String({ description: "log: что делалось и сделано" })),
-			why: Type.Optional(Type.String({ description: "log: какую цель закрывает" })),
-			why_chosen: Type.Optional(Type.String({ description: "log: почему выбран этот вариант, если был выбор" })),
-			how: Type.Optional(Type.String({ description: "log: способ - файлы, строки, команды, ссылки" })),
-			done: Type.Optional(Type.String({ description: "log и state: проверяемый результат" })),
-			left: Type.Optional(Type.String({ description: "log: что не доделано в этом заходе" })),
-			need: Type.Optional(Type.String({ description: "log: что требуется извне" })),
-			knowledge: Type.Optional(Type.String({ description: "log: какие записи знаний применены и что из них взято" })),
-			cancels: Type.Optional(Type.String({ description: "log: какой прежний вывод перестал быть верным" })),
-			goal: Type.Optional(Type.String({ description: "state: цель одной фразой" })),
-			established: Type.Optional(Type.String({ description: "state: факты, которые больше не пересматриваются" })),
-			decision: Type.Optional(Type.String({ description: "state: выбранный подход и почему именно он" })),
-			rejected: Type.Optional(Type.String({ description: "state: отвергнутые варианты с причиной отказа" })),
-			next: Type.Optional(Type.String({ description: "state: с чего продолжать" })),
-			careful: Type.Optional(Type.String({ description: "state: ограничения и опасности, действующие сейчас" })),
-			wiki: Type.Optional(Type.String({ description: "state: кандидаты в накопленные знания" })),
-			open: Type.Optional(Type.Array(Type.String(), { description: "open: строки того, что ждёт человека или внешних данных" })),
+			stage: Type.Optional(Type.String()),
+			what: Type.Optional(Type.String()),
+			why: Type.Optional(Type.String()),
+			why_chosen: Type.Optional(Type.String()),
+			how: Type.Optional(Type.String({ description: "files, lines, commands, links" })),
+			done: Type.Optional(Type.String()),
+			left: Type.Optional(Type.String()),
+			need: Type.Optional(Type.String({ description: "what is needed from outside" })),
+			knowledge: Type.Optional(Type.String({ description: "knowledge entries applied" })),
+			cancels: Type.Optional(Type.String({ description: "which earlier conclusion no longer holds" })),
+			goal: Type.Optional(Type.String()),
+			established: Type.Optional(Type.String({ description: "settled facts" })),
+			decision: Type.Optional(Type.String()),
+			rejected: Type.Optional(Type.String({ description: "rejected options with reasons" })),
+			next: Type.Optional(Type.String({ description: "where to continue" })),
+			careful: Type.Optional(Type.String({ description: "current limits and dangers" })),
+			wiki: Type.Optional(Type.String({ description: "knowledge candidates" })),
+			open: Type.Optional(Type.Array(Type.String())),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const active = loadActive(ctx.cwd);
@@ -190,17 +184,17 @@ export function registerTools(pi: ExtensionAPI): void {
 		name: "volna_advocate",
 		label: "Волна: адвокат",
 		description:
-			"Адвокат дьявола: отдельный процесс pi с чистым контекстом и правами только на чтение проверяет полный " +
-			"дифф против базы и пытается опровергнуть решение. Возвращает находки и вердикт: чисто, дефекты или нужен человек.",
-		promptSnippet: "Проверить свои изменения адвокатом дьявола в отдельном процессе",
+			"Adversarial review: a separate read-only pi process checks the current changes against the acceptance " +
+			"criteria in the journal and tries to refute them. Returns findings and a verdict.",
+		promptSnippet: "Review your own changes in a separate adversarial process",
 		promptGuidelines: [
-			"После каждой итерации implement вызывай volna_advocate: свой код в своём же контексте не проверяется честно.",
-			"Вердикт «дефекты» - открой новую итерацию implement через volna_stage с причиной из находок.",
+			"Call volna_advocate after every implement iteration: your own code cannot be judged honestly in your own context.",
+			"Verdict «дефекты» means open a new implement iteration via volna_stage with the findings as reason.",
 		],
 		parameters: Type.Object({
-			base: Type.Optional(Type.String({ description: "База сравнения, по умолчанию HEAD" })),
-			focus: Type.Optional(Type.String({ description: "На что смотреть в первую очередь: находки прошлой итерации, конкретная ветвь, риск" })),
-			model: Type.Optional(Type.String({ description: "Модель адвоката; по умолчанию из профиля проекта, иначе модель по умолчанию pi" })),
+			base: Type.Optional(Type.String({ description: "Comparison base for git, default HEAD" })),
+			focus: Type.Optional(Type.String({ description: "What to look at first: last findings, a branch, a risk" })),
+			model: Type.Optional(Type.String({ description: "Reviewer model; default from project profile" })),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const active = loadActive(ctx.cwd);
@@ -227,6 +221,7 @@ export function registerTools(pi: ExtensionAPI): void {
 					journalContext,
 					model: model === "наследовать" ? undefined : model,
 					keepExtensions: ["да", "yes"].includes(profileValue(profile, "расширения адвоката").toLowerCase()),
+					profile,
 					timeoutMs: 15 * 60 * 1000,
 				},
 				signal,
@@ -251,7 +246,9 @@ export function registerTools(pi: ExtensionAPI): void {
 						: "\n\nВердикт не однозначен: разберись с отчётом, при необходимости спроси человека.";
 
 			const text = [
-				`Адвокат: вердикт «${result.verdict}», файлов в диффе ${result.filesChanged}, вызовов инструментов ${result.toolCalls}.`,
+				`Адвокат: вердикт «${result.verdict}», изменённых файлов ${result.filesChanged}, вызовов инструментов ${result.toolCalls}.`,
+				`Источник изменений: ${result.changeSource}, база: ${result.changeBase}.`,
+				result.changeNotes.length ? `Про полноту данных: ${result.changeNotes.join("; ")}` : "",
 				result.model ? `Модель адвоката: ${result.model}` : "",
 				`Дифф: ${result.diffPath}`,
 				"",
@@ -266,6 +263,8 @@ export function registerTools(pi: ExtensionAPI): void {
 				details: {
 					verdict: result.verdict,
 					diffPath: result.diffPath,
+					changeSource: result.changeSource,
+					changeBase: result.changeBase,
 					filesChanged: result.filesChanged,
 					exitCode: result.exitCode,
 					toolCalls: result.toolCalls,
@@ -279,17 +278,15 @@ export function registerTools(pi: ExtensionAPI): void {
 		name: "volna_visual",
 		label: "Волна: визуальная проверка",
 		description:
-			"Опциональная визуальная проверка веб-выхода в браузере, которым управляет расширение " +
-			"pi-chrome-devtools: открыть страницу, проделать шаги, собрать ошибки консоли, необработанные " +
-			"исключения и ответы 4xx/5xx, снять скриншот. Браузер должен быть запущен - поднимает его " +
-			"chrome_devtools_navigate.",
-		promptSnippet: "Открыть страницу в браузере и собрать ошибки консоли со скриншотом",
+			"Optional browser check in the pi-chrome-devtools browser: open a page, run steps, collect console " +
+			"errors, page exceptions and 4xx/5xx responses, take a screenshot.",
+		promptSnippet: "Open a page in the browser and collect console errors plus a screenshot",
 		promptGuidelines: [
-			"Вызывай volna_visual на этапе visual, когда изменения видны в браузере; консольного проекта это не касается.",
-			"volna_visual сказал, что браузер не отвечает - подними его вызовом chrome_devtools_navigate и повтори volna_visual.",
+			"Call volna_visual on stage visual when the change is visible in a browser.",
+			"If it reports the browser is down, start it with chrome_devtools_navigate and call volna_visual again.",
 		],
 		parameters: Type.Object({
-			url: Type.String({ description: "Адрес страницы, например http://localhost:5173/" }),
+			url: Type.String({ description: "e.g. http://localhost:5173/" }),
 			steps: Type.Optional(
 				Type.Array(
 					Type.Object({
@@ -301,16 +298,13 @@ export function registerTools(pi: ExtensionAPI): void {
 						ms: Type.Optional(Type.Number()),
 						y: Type.Optional(Type.Number()),
 					}),
-					{ description: "Шаги сценария после загрузки страницы" },
 				),
 			),
-			wait_for: Type.Optional(Type.String({ description: "Селектор, появление которого ждать перед скриншотом" })),
-			wait_ms: Type.Optional(Type.Number({ description: "Пауза перед скриншотом, мс" })),
+			wait_for: Type.Optional(Type.String({ description: "selector to await before the screenshot" })),
+			wait_ms: Type.Optional(Type.Number()),
 			viewport_width: Type.Optional(Type.Number()),
 			viewport_height: Type.Optional(Type.Number()),
-			reuse_page: Type.Optional(
-				Type.Boolean({ description: "Работать в уже открытой вкладке вместо новой: состояние набрано руками" }),
-			),
+			reuse_page: Type.Optional(Type.Boolean({ description: "Use the already open tab instead of a new one" })),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const volnaDir = findVolnaDir(ctx.cwd);
@@ -355,15 +349,13 @@ ${report.summary}` },
 	pi.registerTool({
 		name: "volna_finish",
 		label: "Волна: завершить задачу",
-		description:
-			"Завершить задачу: записать итог и потраченные часы в журнал, переписать «Состояние» и снять задачу с " +
-			"активной. Вызывается на этапе close, после решения человека.",
-		promptSnippet: "Завершить задачу «Волны»: итог, часы, снятие активной задачи",
-		promptGuidelines: ["Вызывай volna_finish только на этапе close и только после явного «да» человека."],
+		description: "Close the task: write outcome and hours to the journal, rewrite Status, clear the active task. Content in Russian.",
+		promptSnippet: "Close the Volna task (outcome, hours, clear active task)",
+		promptGuidelines: ["Call volna_finish only on stage close and only after an explicit yes from the user."],
 		parameters: Type.Object({
-			summary: Type.String({ description: "Итог работы: что изменилось для пользователя, что проверено" }),
-			hours: Type.Optional(Type.String({ description: "Потраченные часы по меткам журнала, например «3.5»" })),
-			left: Type.Optional(Type.String({ description: "Что осталось за пределами задачи" })),
+			summary: Type.String({ description: "Outcome: what changed for the user, what was verified" }),
+			hours: Type.Optional(Type.String({ description: "Hours from journal timestamps, e.g. 3.5" })),
+			left: Type.Optional(Type.String({ description: "What is left out of scope" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const active = loadActive(ctx.cwd);
@@ -409,14 +401,12 @@ ${report.summary}` },
 	pi.registerTool({
 		name: "volna_recall",
 		label: "Волна: вспомнить",
-		description:
-			"Поиск по накопленному: журналы прошлых задач и записи знаний в .volna. Возвращает совпадения строками " +
-			"с указанием файла - читать целиком найденное не нужно.",
-		promptSnippet: "Найти в прошлых журналах и знаниях то, что относится к теме",
-		promptGuidelines: ["Перед разбором задачи вызывай volna_recall по ключевым словам: часть работы может быть уже сделана."],
+		description: "Search past task journals and knowledge notes in .volna. Returns matching lines with file paths.",
+		promptSnippet: "Search past journals and knowledge notes",
+		promptGuidelines: ["Call volna_recall with keywords before analysing a task: part of the work may already be done."],
 		parameters: Type.Object({
-			query: Type.String({ description: "Слова для поиска" }),
-			scope: Type.Optional(StringEnum(["all", "journals", "wiki"] as const, { description: "Где искать, по умолчанию all" })),
+			query: Type.String({ description: "Search words" }),
+			scope: Type.Optional(StringEnum(["all", "journals", "wiki"] as const, { description: "Default: all" })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const volnaDir = findVolnaDir(ctx.cwd);

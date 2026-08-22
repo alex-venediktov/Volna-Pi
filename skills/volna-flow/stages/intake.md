@@ -1,30 +1,18 @@
-# Этап 1 · intake — принять задание · required
+# Stage 1 · intake (required)
 
-Задание приходит **текстом или путём к md-файлу**: трекера в этой версии нет. Задача этапа -
-завести журнал так, чтобы через неделю или в новой сессии было понятно, что просили и какими
-словами.
+`volna_task` already did the mechanics: built the id (`YYMMDD-slug`), created the journal, stored the
+assignment verbatim in the log, set the task active.
 
-## Что делает инструмент
-`volna_task` уже сделал всё механическое: собрал идентификатор `ГГММДД-слаг`, создал файл
-состояния и лог, записал задание в лог дословно, поставил задачу активной.
+Do now:
 
-## Что остаётся человеку и модели
-1. **Проверить название задачи.** Оно взято из первой значимой строки задания. Название не по
-   предмету («исследование», «фикс») - переписать через `volna_journal` не получится: название в
-   frontmatter. Скажи об этом человеку, если название плохое, и предложи начать заново с явным
-   title - это дешевле, чем жить с непонятным именем задачи.
-2. **Назвать тип**, если он не `task`: `bug`, `story`, `research`. Тип виден в карточке и влияет
-   на ожидания этапов (у `research` кода может не быть вовсе).
-3. **Сформулировать цель одной фразой** - что должно измениться для пользователя. Это подпункт
-   «цель» в «Состоянии»; неясная цель на этом этапе - это СТОП-критерий, а не повод угадать.
-4. **Проверить, не делалось ли это уже**: `volna_recall` по ключевым словам задания. Нашлось -
-   назвать найденное строкой и учесть в разборе.
+1. Check the title names the subject, not the action. A bad title cannot be renamed (it is in the file
+   name) — say so and offer to start over with an explicit `title`.
+2. Set `type` if it is not `task`: `bug`, `story`, `research`.
+3. State the goal in one phrase: what changes for the user.
+4. Call `volna_recall` with keywords from the assignment. The same work may sit in a past journal;
+   a knowledge note may forbid the obvious path. Say out loud what you found or that nothing matched.
 
-## СТОП-критерии
-- Из задания не понятно, что считать результатом. Спросить человека, не достраивать.
-- Задание описывает несколько независимых результатов. Сказать об этом и предложить взять первый,
-  остальные - отдельными задачами: в этой версии деления задачи на части нет.
+Stop and ask when: the result is not defined; the assignment holds several independent results (take
+the first, the rest become separate tasks — this version has no task splitting).
 
-## DoD
-Журнал создан, задание в логе дословно, цель сформулирована, тип задачи верный. Дальше -
-`volna_stage` со `stage=analyze`, в том же ходе.
+Done: goal stated, type right, recall reported. Then `volna_stage stage=analyze`, same turn.

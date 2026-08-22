@@ -1,37 +1,26 @@
-# Этап 5 · implement — итерация правок · expected
+# Stage 5 · implement (expected)
 
-Задача этапа - **сделать одну итерацию правок по плану** и записать её так, чтобы следующая
-сессия поняла, почему код такой.
+One iteration of edits from the plan, recorded so the next session understands why the code is like this.
 
-## Перед первой итерацией
-- **ветка**, если проект с ветками: создать и записать в `branch` журнала (`volna_journal` пишет
-  лог, поле ветки правится при переходе этапа - назови ветку в подпункте «как»);
-- **рабочее дерево**: чужих незакоммиченных правок нет (проверено на `plan`).
+Before the first iteration: create the branch if the project uses them (name it in the log, «как»); the
+working tree is free of foreign changes (checked in `plan`).
 
-## Ход работы
-1. Идти по плану, а не по вдохновению. Отклонение от плана - законно, но записывается: что и
-   почему сделано иначе.
-2. **Правки минимальные и по предмету.** Посторонние улучшения, переформатирование чужого кода,
-   отладочный код в дифф не попадают: адвокат их найдёт, а объяснить будет нечем.
-3. **Комментарии по конвенции проекта.** Если в проекте есть свой формат комментариев - он
-   главнее общих привычек. Номеров задач, истории итераций и описания прежнего поведения в
-   комментариях быть не должно.
-4. **Эталон, если он в профиле**: каждое числовое значение и условие - из конкретной строки
-   эталона, ссылка идёт в журнал. Значение, которого в эталоне нет, - либо ошибка, либо
-   СТОП-критерий, но не «похоже, так правильно».
-5. Тесты и сборка запускаются **своей командой из профиля**; красный результат - это результат
-   этапа, а не повод его скрыть.
+1. Follow the plan, not inspiration. Deviating is fine — record what changed and why.
+2. **Minimal edits, on subject.** No drive-by improvements, no reformatting of other people's code, no
+   debug leftovers: the advocate will find them and there will be nothing to justify them with.
+3. **Comments by project convention** — if the project has its own format, it wins over habits. No task
+   numbers, no iteration history, no description of the previous behaviour in comments.
+4. **Reference implementation**, if the profile names one: every number and condition comes from a
+   concrete reference line, and the reference goes into the log. A value absent from the reference is
+   either a mistake or a stop — never «looks right».
+5. Tests and build run with the profile command. A red result is the stage's result, not something to hide.
 
-## Повторный заход - новая итерация
-`volna_stage` со `stage=implement` открывает итерацию N+1. В `reason` - причина возврата: находка
-адвоката, красный тест, вердикт человека на визуальной проверке. Прошлые секции лога не
-переписываются. Прежний вывод перестал быть верным - подпункт «отменяет» со ссылкой на итерацию.
+Re-entering `implement` opens iteration N+1: pass `reason` (advocate finding, red test, user verdict on
+the browser check). Past log sections are never rewritten. If an earlier conclusion no longer holds, add
+`cancels` with the iteration it overrides.
 
-## СТОП-критерии
-- Правка требует решения, которого нет ни в плане, ни в постановке.
-- Нужно менять поведение, которое кто-то ещё использует, и последствия неясны.
+Stop and ask when: the edit needs a decision that is in neither the plan nor the statement; behaviour
+someone else relies on must change and the consequences are unclear.
 
-## DoD
-В журнале: что сделано, какие файлы и строки, почему так, что осталось, результат тестов и сборки,
-если запускались. Дальше - **адвокат обязателен**: `volna_stage` со `stage=advocate`, в том же ходе,
-команды на это не ждать.
+Done in the log: what was done, which files and lines, why this way, what is left, test and build results
+if run. Then the advocate is mandatory: `volna_stage stage=advocate`, same turn, without waiting to be told.

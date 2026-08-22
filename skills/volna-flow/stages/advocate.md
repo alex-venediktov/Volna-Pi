@@ -1,36 +1,29 @@
-# Этап 6 · advocate — адвокат дьявола · expected
+# Stage 6 · advocate (expected)
 
-Задача этапа - **опровергнуть собственное решение**, а не подтвердить его. Проверку ведёт отдельный
-процесс `pi` с чистым контекстом и правами только на чтение: он не видел, как писался этот код, и
-судит по диффу, а не по намерению.
+Refute your own solution, do not confirm it. The review runs in a separate read-only `pi` process with a
+clean context: it never saw the code being written and judges the changes, not the intent.
 
-## Как проводить
-1. Вызвать `volna_advocate`. Параметры: `base` (по умолчанию `HEAD`), `focus` - на что смотреть в
-   первую очередь (находки прошлой итерации, конкретная ветвь, риск из плана).
-2. Дождаться отчёта. Инструмент передаёт адвокату критерии приёмки и решения из журнала, поэтому
-   он проверяет дифф против постановки, а не против общих представлений о хорошем коде.
-3. **Отчёт целиком - в журнал.** Находки, которых нет в журнале, через сессию не существуют.
+1. Call `volna_advocate`. Optional: `base` (git base, default `HEAD`), `focus` — what to look at first
+   (last iteration's findings, a specific branch, a risk from the plan).
+2. The changes come from git, svn, hg, a project command or Volna's own tree snapshot — the tool reports
+   which, and what the limits of that data are. Read those notes: they say what the review could not see.
+3. **The whole report goes into the journal.** Findings that are not in the journal do not exist a session later.
 
-## Итог этапа - один из трёх
-- **чисто** → идти дальше (`unit-tests`) сразу, в том же ходе. В журнал - что проверено и что
-  расхождений не найдено: «проверено то и то» перепроверяемо, «всё хорошо» - нет;
-- **дефекты** → находки в журнал и **сразу новая итерация `implement`** (`volna_stage`,
-  `stage=implement`, в `reason` - находки). Правка - единственное продолжение, команды на неё не
-  ждать. После правки адвокат снова: это цикл, а не однократный проход;
-- **нужен человек** → остановиться и спросить: как закрыть находку, не видно, либо нужен выбор
-  между двумя правильными поведениями.
+One of three outcomes:
 
-## Что делать с отчётом, с которым не согласен
-Написать в журнал, **почему** находка не является дефектом, со ссылкой на код или постановку.
-«Адвокат ошибся» без объяснения - это отклонённая находка, которая вернётся в следующей итерации,
-и тогда придётся разбираться заново.
+- **чисто** → go on to `unit-tests` in the same turn. Record what was checked; «проверено то и то» is
+  verifiable, «всё хорошо» is not;
+- **дефекты** → findings into the journal and immediately a new `implement` iteration
+  (`volna_stage stage=implement`, `reason` = the findings). Fixing is the only continuation, no command
+  needed. After the fix the advocate runs again — it is a cycle, not a single pass;
+- **нужен человек** → stop and ask: how to close the finding is unclear, or the choice is between two
+  correct behaviours.
 
-## Типичные ошибки
-- Считать этап пройденным навсегда: код после адвоката правился - адвокат нужен снова.
-- Запускать адвоката на пустом дереве: он честно скажет «проверять нечего», но итерация уже
-  записана в журнал.
-- Прочитать отчёт, поправить молча и не записать: потом непонятно, почему код такой.
+Disagree with a finding? Write into the journal **why** it is not a defect, with a reference to code or
+the statement. «The advocate is wrong» without a reason returns in the next iteration.
 
-## DoD
-В журнале: номер итерации, вердикт, находки (или явное «расхождений не найдено, проверено то и то»),
-решение о следующем шаге.
+Typical mistakes: treating the stage as passed forever (code changed after it — it must run again);
+running it on an empty tree; fixing quietly and not recording it.
+
+Done in the log: iteration number, verdict, findings (or an explicit «расхождений не найдено, проверено
+то и то»), decision on the next step.

@@ -28,8 +28,8 @@ export async function run(): Promise<void> {
 	check("задание в логе дословно", active.logText.includes("белый экран"));
 
 	const analyze = enterStage(dir, "analyze");
-	check("вход в этап выдал инструкцию", analyze.ok && analyze.message.includes("analyze — разбор задания"));
-	check("контекст задачи приложен", analyze.message.includes("## Контекст задачи"));
+	check("вход в этап выдал инструкцию", analyze.ok && analyze.message.includes("Stage 2 · analyze"));
+	check("контекст задачи приложен", analyze.message.includes("## Task") && analyze.message.includes("Status from the journal"));
 	check("этап записан в журнал", loadActive(dir)!.fm.stage === "analyze");
 
 	appendLogSection(volnaDir, task, {

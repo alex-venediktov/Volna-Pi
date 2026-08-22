@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { probeEndpoint, resolveEndpoint } from "./cdp.ts";
+import { needsSnapshot, snapshotExists, snapshotTakenAt, takeSnapshot } from "./changes.ts";
 import { enterStage, intake, skipStage, statusReport } from "./core.ts";
 import { initVolna } from "./init.ts";
 import { journalIssues, stamp } from "./journal.ts";
@@ -137,6 +138,34 @@ export function registerCommands(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerCommand("volna:baseline", {
+		description: "Волна: снять снимок дерева для проекта без системы контроля версий (по нему адвокат видит правки)",
+		handler: async (_args, ctx) => {
+			const volnaDir = findVolnaDir(ctx.cwd);
+			if (!volnaDir) {
+				ctx.ui.notify("Волна здесь не развёрнута", "warning");
+				return;
+			}
+			const active = loadActive(ctx.cwd);
+			if (!active) {
+				ctx.ui.notify("Активной задачи нет: снимок привязан к задаче", "warning");
+				return;
+			}
+			const profile = readProfile(volnaDir);
+			const had = snapshotExists(volnaDir, active.task) ? snapshotTakenAt(volnaDir, active.task) : null;
+			const snapshot = takeSnapshot(volnaDir, active.task, profile);
+			const lines = [
+				`Снимок дерева снят: ${snapshot.files} файлов${snapshot.skipped ? `, из них без копии ${snapshot.skipped} (бинарные или крупные)` : ""}.`,
+				had ? `Прежний снимок от ${had.slice(0, 16).replace("T", " ")} заменён - правки, сделанные до этого момента, адвокат уже не увидит.` : "",
+				needsSnapshot(volnaDir, profile)
+					? "Система контроля версий в проекте не найдена, поэтому адвокат сравнивает именно со снимком."
+					: "В проекте есть система контроля версий - адвокат возьмёт правки из неё, снимок останется запасным.",
+			].filter(Boolean);
+			ctx.ui.notify(lines[0], "info");
+			pi.sendMessage({ customType: "volna-baseline", content: lines.join(" "), display: true }, { triggerTurn: false });
+		},
+	});
+
 	pi.registerCommand("volna:doctor", {
 		description: "Волна: проверить настройку - .volna, профиль, состояние, git, браузер, запуск адвоката",
 		handler: async (_args, ctx) => {
@@ -209,18 +238,15 @@ export async function doctorReport(cwd: string): Promise<string> {
 		lines.push(issues.length ? `- ! журнал: ${issues.join("; ")}` : "- журнал: в порядке, задача восстановима");
 	}
 
-	lines.push(
-		existsSync(join(root, ".git"))
-			? "- git: репозиторий на месте (адвокат сравнивает дифф против HEAD)"
-			: "- ! git: репозитория нет. Адвокату не с чем сравнивать - он вернёт «проверять нечего».",
-	);
-
 	const script = process.argv[1];
 	lines.push(
 		script && existsSync(script)
 			? `- запуск адвоката: подпроцесс пойдёт через ${script}`
 			: "- запуск адвоката: подпроцесс пойдёт командой pi из PATH",
 	);
+
+	const source = changeSourceLine(volnaDir, profile, active?.task);
+	lines.push(`- изменения для адвоката: ${source}`);
 
 	const endpointInfo = resolveEndpoint(profileValue(profile, "endpoint браузера") || undefined);
 	const browser = await probeEndpoint(endpointInfo.endpoint, 2000);
@@ -231,4 +257,25 @@ export async function doctorReport(cwd: string): Promise<string> {
 	);
 	lines.push("", `Проверено ${stamp()}.`);
 	return lines.join("\n");
+}
+
+/**
+ * Откуда адвокат возьмёт правки. Строка есть в докторе потому, что это первое, что ломается в
+ * проекте без git: адвокат приходит с пустыми руками, и понять причину иначе неоткуда.
+ */
+function changeSourceLine(volnaDir: string, profile: Record<string, string>, task?: string): string {
+	const root = workspaceRoot(volnaDir);
+	const custom = profileValue(profile, "изменения");
+	if (custom) {
+		const diffCommand = profileValue(profile, "дифф");
+		return `команда проекта «${custom}»${diffCommand ? `, дифф «${diffCommand}»` : ", диффа нет - файлы уйдут целиком"}`;
+	}
+	if (existsSync(join(root, ".git"))) return "git diff против HEAD";
+	if (existsSync(join(root, ".svn"))) return "svn status и svn diff";
+	if (existsSync(join(root, ".hg"))) return "hg status и hg diff";
+	if (!task) return "снимок дерева «Волны» (активной задачи нет, снимок снимается на implement)";
+	const takenAt = snapshotTakenAt(volnaDir, task);
+	return takenAt
+		? `снимок дерева «Волны» от ${takenAt.slice(0, 16).replace("T", " ")}`
+		: "! снимка дерева нет, а системы контроля версий не найдено - адвокату не с чем сравнивать. Снять: /volna:baseline";
 }

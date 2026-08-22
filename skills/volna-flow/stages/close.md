@@ -1,32 +1,27 @@
-# Этап 9 · close — закрытие задачи · required
+# Stage 9 · close (required)
 
-Задача этапа - **зафиксировать итог и часы** и снять задачу с активной. Уровень `required`: этап
-начинает человек, и завершение задачи делается по его явному «да».
+Record the outcome and the hours, then clear the active task. Level `required`: the user starts this stage
+and the closing itself needs their explicit yes.
 
-## Порядок
-1. **Собрать итог**: что изменилось для пользователя, какие критерии приёмки закрыты, что
-   проверено (тесты, адвокат, визуальная проверка). Не пересказ хода работы - результат.
-2. **Посчитать часы по меткам журнала.** Метки секций лога стоят на часах машины: разница между
-   первой и последней с поправкой на перерывы и есть время работы. Считать «на глаз» нельзя -
-   именно для этого метки и ставились инструментом.
-3. **Проверить остаток**: что осталось за пределами задачи, что стоит завести отдельно. Остаток
-   без записи через сессию неотличим от забытого.
-4. **Показать итог человеку и получить «да»** на закрытие. Это единственное необратимое действие
-   этапа: после него активная задача снимается, шапка и гейты по ней перестают работать.
-5. **Вызвать `volna_finish`** с итогом и часами. Инструмент запишет секцию `close` в лог,
-   перепишет «Состояние» и снимет задачу с активной.
-6. **Уборка**: временные файлы, диагностические скрипты, отладочный код - убрать. Дифф адвоката и
-   скриншоты в `.volna/` не коммитятся и лежат локально, их чистить не нужно.
+1. **Collect the outcome**: what changed for the user, which acceptance criteria are closed, what was
+   verified (tests, advocate, browser check). The result, not a retelling of the work.
+2. **Count the hours from the journal timestamps.** Section stamps come from the machine clock: the span
+   between the first and the last, minus breaks, is the working time. Estimating by feel is exactly what
+   the stamps exist to prevent.
+3. **Check the remainder**: what is out of scope, what deserves a separate task. An unrecorded remainder is
+   indistinguishable from a forgotten one a session later.
+4. **Show the outcome to the user and get a yes.** This is the only irreversible action here: after it the
+   active task is cleared and the header and gates stop working for it.
+5. **Call `volna_finish`** with the outcome and hours. It writes the `close` section, rewrites Status and
+   clears the active task.
+6. **Tidy up**: temporary files, diagnostic scripts, debug code. Advocate diffs, snapshots and screenshots
+   in `.volna/` are local and need no cleaning.
 
-## Коммит
-Доставки в этой версии флоу нет: коммит, push и PR человек делает сам. Если он коммитит, «Волна»
-проверит одно - есть ли по текущему этапу запись в журнале, и предупредит, если её нет.
+Commits, push and PR are not part of this flow — the user does them when they see fit. Volna only warns if
+the current stage has no journal entry yet.
 
-## Если кода не было
-Законный путь `intake → analyze → close`: «изменения не требуются». Пустой или фиктивный коммит в
-этом случае делать нельзя, а журнал нужен ровно так же - в нём и лежит объяснение, почему работа
-кончилась ничем.
+No code was needed? `intake → analyze → close` is a legal path («no changes required»). No empty or fake
+commit in that case, and the journal matters just as much: it holds the explanation.
 
-## DoD
-Итог и часы в журнале, «Состояние» переписано, задача снята с активной. Следующую задачу начинать
-с чистого контекста: `/new` или `/clear`, затем `/volna:task`.
+Done: outcome and hours in the journal, Status rewritten, task cleared. Start the next one from a clean
+context (`/new` or `/clear`, then `/volna:task`).

@@ -1,39 +1,25 @@
-# Этап 8 · visual — визуальная проверка · optional
+# Stage 8 · visual (optional)
 
-Задача этапа - **посмотреть на результат глазами**, автоматикой и человеком. Тесты проверяют
-утверждения, которые кто-то догадался сформулировать; браузер показывает то, о чём никто не
-подумал: пустой экран, ошибку в консоли, упавший запрос.
+Look at the result. Tests check claims somebody thought to write; the browser shows what nobody thought
+of — a blank screen, a console error, a failed request.
 
-## Когда этап есть
-Работа видна в браузере, и профиль это подтверждает: `визуальная проверка: chrome-devtools`.
-Строка `нет` или отсутствие веб-выхода - этап ничего не делает.
+The stage exists when the work is visible in a browser and the profile says `визуальная проверка:
+chrome-devtools`. `нет` or no web output — the stage does nothing.
 
-## Порядок
-1. **Поднять приложение** командой из профиля (`запуск: <команда>`). Сервер уже поднят человеком -
-   не поднимать второй раз, спросить адрес.
-2. **Вызвать `volna_visual`** с адресом страницы. Проверка идёт в том браузере, которым управляет
-   расширение `pi-chrome-devtools`. Браузер не отвечает - инструмент так и скажет: подними его
-   вызовом `chrome_devtools_navigate` (он запускает браузер сам) и повтори `volna_visual`.
-   Нужны шаги до нужного состояния - передай их в `steps` (`click`, `fill`, `press`, `waitfor`,
-   `wait`, `scroll`, `goto`); нужно дождаться элемента - `wait_for`.
-3. **Прочитать отчёт.** Автоматический критерий строгий и настоящий:
-   - ошибки консоли и необработанные исключения страницы - **красный результат**;
-   - ответы 4xx/5xx и упавшие запросы - **красный результат**;
-   - предупреждения консоли - не вердикт, но повод посмотреть.
-4. **Показать скриншот человеку.** Путь к файлу есть в отчёте. Соответствие макету, читаемость,
-   «выглядит ли это как то, что просили» - вердикт человека, а не автоматики. Профиль
-   `скриншот модели: да` дополнительно отдаёт картинку модели, если модель видит изображения.
-5. **Красный результат** → находки в журнал и новая итерация `implement` с причиной.
+1. **Start the app** with the profile command (`запуск`). Already running? Do not start a second one — ask
+   for the address.
+2. **Call `volna_visual`** with the page URL. It runs in the browser managed by `pi-chrome-devtools`. If the
+   browser is down, the tool says so: start it with `chrome_devtools_navigate` and call `volna_visual`
+   again. Steps to reach the state go in `steps` (`click`, `fill`, `press`, `waitfor`, `wait`, `scroll`,
+   `goto`); to await an element use `wait_for`. State set up by hand in an open tab — `reuse_page: true`.
+3. **Read the report.** The automatic criterion is strict: console errors and page exceptions are red;
+   4xx/5xx and failed requests are red; console warnings are not a verdict but worth a look.
+4. **Show the screenshot to the user** — the path is in the report. Matching the mockup and «does this look
+   like what was asked» is the user's verdict, not the automation's. Profile `скриншот модели: да` also
+   hands the image to the model when the model can see images.
+5. **Red result** → findings into the journal and a new `implement` iteration with that reason.
 
-## Состояние, которое набирается руками
-Проверка открывает **новую вкладку** и закрывает её за собой. Если нужное состояние уже набрано
-человеком в открытой вкладке (вход в систему, заполненная форма), передай `reuse_page: true` -
-тогда шаги пойдут в ней, и вкладка останется открытой.
+This does not replace tests: one green browser scenario says nothing about the branches it did not touch.
 
-## Чего этап не заменяет
-Тестов. Зелёный браузерный прогон одного сценария не говорит ничего о ветвях, которых сценарий не
-касался.
-
-## DoD
-В журнале: что открывали и какими шагами, вердикт автоматики (ошибки консоли и сети), путь к
-скриншоту, вердикт человека, если он его дал. Дальше - `volna_stage` со `stage=close`.
+Done in the log: what was opened and with which steps, the automation verdict, the screenshot path, the
+user's verdict if given. Then `volna_stage stage=close`.

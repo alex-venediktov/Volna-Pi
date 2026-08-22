@@ -1,98 +1,76 @@
 ---
 name: volna-journal
-description: "Формат журнала работ «Волны» - два файла на задачу. Файл TASK-<id>.md держит frontmatter и переписываемую секцию «Состояние», по которой восстанавливается контекст; logs/TASK-<id>.log.md - append-only лог итераций по этапам. Используй, когда нужно понять, что и куда писать, восстановить контекст задачи или сделать чек-пойнт перед сжатием контекста."
+description: "Volna journal format: TASK-<id>.md holds frontmatter and the rewritable Status section the task is restored from; logs/TASK-<id>.log.md is the append-only log of stage iterations. Use when writing the journal, making a checkpoint or restoring a task context."
 ---
 
-# Волна: журнал работ
+# Volna journal
 
-Журнал - **единственный источник правды** о состоянии задачи. Инвариант: по журналу задача
-восстанавливается с нуля в новой сессии, без остатков контекста.
+The journal is the single source of truth about a task. Invariant: the task can be restored from it from
+scratch in a new session, with no leftover context.
 
-| Файл | Слой | Правка |
+| File | Layer | Editing |
 |---|---|---|
-| `.volna/journal/TASK-<id>.md` | frontmatter + `## Состояние · <дата>` — картина сейчас | перезаписывается |
-| `.volna/journal/logs/TASK-<id>.log.md` | `## <этап> · итерация N · <дата>` — как к ней пришли | **append-only** |
+| `.volna/journal/TASK-<id>.md` | frontmatter + `## Состояние · <date>` — the picture now | rewritten |
+| `.volna/journal/logs/TASK-<id>.log.md` | `## <stage> · итерация N · <date>` — how we got here | **append-only** |
 
-Два файла, а не два раздела одного: `read` открывает файл целиком, и один невнимательный возврат к
-задаче стоил бы всего лога. В файле состояния лога просто нет - нарушить правило нечем.
+Two files, not two sections: `read` opens a whole file, and one careless return to a task would cost the
+whole log. In the status file there is no log to read by accident.
 
-**Возврат к задаче - чтение `TASK-<id>.md`, и всё.** Он размером с экран. Лог открывается адресно,
-когда «Состояние» на него ссылается. При противоречии слоёв прав верхний: лог отвечает на вопрос
-«как к этому пришли», а не «как обстоят дела».
+**Coming back to a task means reading `TASK-<id>.md`, and nothing else.** It is one screen. The log is
+opened by address when Status points at it. When the layers disagree, the upper one wins.
 
-## Писать - инструментом, не руками
+## Write with the tool, not by hand
 
-| Что | Как |
+| What | How |
 |---|---|
-| секция этапа в лог | `volna_journal`, `action=log` |
-| «Состояние» целиком | `volna_journal`, `action=state` |
-| открытые вопросы | `volna_journal`, `action=open` |
-| что мешает восстановлению | `volna_journal`, `action=check` |
+| stage section in the log | `volna_journal action=log` |
+| the whole Status | `volna_journal action=state` |
+| open questions | `volna_journal action=open` |
+| what breaks restoration | `volna_journal action=check` |
 
-Инструмент ставит формат, номер итерации и метку времени. **Метка берётся у часов машины**: по
-меткам считаются часы на закрытии, а модель текущего времени не знает и склонна экстраполировать
-(«прошло минут пять») - именно так метки уезжают в будущее.
+The tool sets the format, the iteration number and the timestamp. **The timestamp comes from the machine
+clock**: the hours at closing are counted from it, and a model that estimates time («about five minutes
+passed») sends the stamps into the future.
 
-## Секция лога: подпункты
+Journal content is written in Russian — it is a document for people.
 
-| Подпункт | Параметр | Обязателен |
-|---|---|---|
-| что | `what` | да |
-| зачем | `why` | да, кроме мелких итераций |
-| почему | `why_chosen` | если был выбор |
-| как | `how` | да: файлы, строки, команды, ссылки |
-| сделано | `done` | да |
-| осталось | `left` | да |
-| нужно | `need` | если требуется извне |
-| знания | `knowledge` | если открывалась память (`volna_recall`) |
-| отменяет | `cancels` | если прежний вывод перестал быть верным |
+## Log section fields
 
-**Прошлые секции неприкосновенны.** Повторный заход на этап - новая секция с итерацией N+1, а не
-правка старой. Новая итерация отменяет прежний вывод - подпункт «отменяет» со ссылкой на итерацию;
-итог отмены обязан оказаться и в «Состоянии»: лог никто не перечитывает.
+`what` and `done` are required; `left` is expected. `why` (which goal it closes), `why_chosen` (if there was
+a choice), `how` (files, lines, commands), `need` (what is needed from outside), `knowledge` (which
+knowledge entries were applied), `cancels` (which earlier conclusion no longer holds).
 
-## «Состояние»: одна переписываемая секция
+**Past sections are untouchable.** Re-entering a stage creates iteration N+1, never an edit of the old one.
+If a new iteration cancels an earlier conclusion, `cancels` names the iteration — and the outcome of that
+cancellation must reach Status, because nobody re-reads the log.
 
-Подпункты - **ровно эти имена**, иначе их никто не найдёт:
+## Status fields
 
-| Подпункт | Параметр | |
-|---|---|---|
-| цель | `goal` | обязателен |
-| установлено | `established` | факты, которые больше не пересматриваются |
-| решение | `decision` | выбранный подход и почему именно он |
-| отвергнуто | `rejected` | вариант - причина отказа |
-| сделано | `done` | обязателен: проверяемый результат |
-| следующий шаг | `next` | обязателен |
-| осторожно | `careful` | ограничения, действующие сейчас |
-| в вики | `wiki` | кандидаты в накопленные знания |
+`goal`, `done`, `next` are required. `established` (settled facts), `decision` (chosen approach and why),
+`rejected` (options with reasons), `careful` (limits in force now), `wiki` (knowledge candidates).
 
-**«отвергнуто» - половина ценности секции.** Иначе единственный способ узнать, что путь уже
-пробовали, - вычитать лог целиком, а от этого секция и избавляет.
+**`rejected` is half the value of the section.** Without it the only way to learn that a path was already
+tried is to read the whole log — which is exactly what Status exists to avoid.
 
-Потолок - примерно экран текста. Разрослось - история уходит в лог, «где что лежит» в знания.
-Инструмент предупредит: `action=check` и подсказки в футере показывают размер и отставание.
+The ceiling is about one screen. Grown too big — history goes to the log, «where things live» to knowledge.
+`action=check` and the footer hints report the size and whether Status has fallen behind the log.
 
-## Чек-пойнт
+## Checkpoint
 
-Перед сжатием контекста (`/compact`) и на границе этапа длинной работы - `/volna:checkpoint` либо
-сразу `volna_journal action=state`. Четыре вопроса:
+Before compaction and at a stage boundary of long work: `/volna:checkpoint` or `action=state` directly.
+Four questions: can the task be restored from Status? did everything decided and rejected in this turn
+reach it? is the current stage's log section written? are the open questions still open?
 
-1. По «Состоянию» задача восстанавливается с нуля?
-2. Всё решённое и отвергнутое в этом ходе попало в «Состояние»?
-3. Секция текущего этапа в логе записана?
-4. Открытые вопросы актуальны?
+Volna cancels compaction when the journal has fallen behind, except on context overflow, where cancelling
+would stop the work entirely.
 
-«Волна» отменит сжатие контекста, если журнал отстал от работы, и попросит дописать - кроме случая
-переполнения контекста, где отменять уже нельзя.
+## Identifier
 
-## Идентификатор задачи
+`YYMMDD-<slug>`: start date plus 2–4 meaningful words in Latin letters, built by `volna_task` from the
+title. It cannot be rebuilt later — the id is in the file name and in `state.json`. Words name the subject,
+not the action: `260822-visual-console-errors` beats `260822-fix-bug`.
 
-`ГГММДД-<слаг>`: дата начала плюс 2-4 значимых слова латиницей. Слаг собирает `volna_task` по
-названию задачи - пересобирать задним числом нельзя, id стоит в имени файла и в `state.json`.
-Слова - по предмету работы, а не по действию: `260822-visual-console-errors` полезнее, чем
-`260822-fix-bug`.
+## Not committed
 
-## Что не коммитится
-
-`.volna/state.json`, `.volna/journal/`, `.volna/visual/`, `.volna/advocate/` - локальные: это ход
-работы одного человека в одной сессии. Коммитится `.volna/project.md` - профиль проекта общий.
+`.volna/state.json`, `.volna/journal/`, `.volna/visual/`, `.volna/advocate/`, `.volna/baseline/` are local:
+they are one person's work in one session. `.volna/project.md` is committed — the profile is shared.

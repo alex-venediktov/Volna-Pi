@@ -1,31 +1,28 @@
-# Этап 4 · plan — план правок · expected
+# Stage 4 · plan (expected)
 
-Задача этапа - **разложить работу по файлам и порядку** так, чтобы каждая правка была объяснима
-критерием приёмки. С планирования работа перестаёт быть чтением.
+Lay the work out over files so every edit is justified by a criterion. From planning on, the work is
+no longer reading.
 
-## Что написать
-1. **Список правок по файлам**: файл, что меняется, почему (какой критерий приёмки закрывает).
-   Правка, которой не соответствует ни один критерий, - лишняя: либо критерий пропущен в `spec`,
-   либо правка не нужна.
-2. **Порядок и группы.** Независимые группы правок можно закрыть одной итерацией `implement`;
-   зависимые - по одной, чтобы адвокат проверял осмысленный дифф.
-3. **Что может сломаться**: кто ещё использует затронутый код, какие ветви задеты, где ждать
-   регресса. Это будущий чек-лист адвоката.
-4. **Как проверять**: команда тестов из профиля (`тесты: <команда>`), какие тесты появятся или
-   поменяются, нужна ли визуальная проверка (`visual`).
-5. **Ветка**, если работа с ветками принята в проекте: имя и от чего создаётся. Создаётся она на
-   `implement`, перед первой правкой, и записывается в поле `branch` журнала.
+1. **Edits by file**: file, what changes, which acceptance criterion it closes. An edit that matches no
+   criterion is either a criterion missed in `spec` or an edit not needed.
+2. **Order and groups.** Independent groups can close in one `implement` iteration; dependent ones go
+   one at a time so the advocate reviews a meaningful diff.
+3. **What can break**: who else uses the affected code, which branches are touched, where regression is
+   likely. This is the advocate's checklist.
+4. **How to verify**: the test command from the profile (`тесты`), which tests appear or change, whether
+   a browser check (`visual`) is needed.
+5. **Branch**, if the project uses them: name and base. It is created in `implement` before the first
+   edit and recorded in the journal field `branch`.
 
-## Pre-flight перед реализацией
-- рабочее дерево: незакоммиченное чужое в нём? Адвокат сравнивает дифф против `HEAD`, и чужие
-  правки в дереве попадут в его отчёт как твои. Есть - сказать человеку и решить, что с ними;
-- нужные данные и доступы на месте;
-- открытых вопросов, блокирующих план, не осталось.
+Pre-flight before implementation:
 
-## СТОП-критерии
-- План требует правок в коде, назначение которого не разобрано на `analyze`.
-- Нужен выбор между двумя правильными подходами с разными последствиями: спросить вариантами.
+- working tree: any foreign uncommitted changes? The advocate compares against the base, and they would
+  land in its report as yours. Say so and decide what to do with them;
+- data and access needed are in place;
+- no open question blocks the plan.
 
-## DoD
-В журнале: план по файлам, порядок, риски, способ проверки, результат pre-flight. Дальше -
-`volna_stage` со `stage=implement`.
+Stop and ask when: the plan needs edits in code whose purpose was not analysed; a choice between two
+correct approaches with different consequences.
+
+Done in the log: plan by file, order, risks, verification method, pre-flight result. Then
+`volna_stage stage=implement`.

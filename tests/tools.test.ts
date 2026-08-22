@@ -40,7 +40,7 @@ export async function run(): Promise<void> {
 	check("задание принято инструментом", toolText(await call("volna_task", { assignment: "Добавить экспорт отчёта в CSV" })).includes("Задача принята"));
 	const task = readState(volnaDir).active!;
 
-	check("этап выдал обязанности", toolText(await call("volna_stage", { stage: "analyze" })).includes("Обязанности на этапе"));
+	check("этап выдал обязанности", toolText(await call("volna_stage", { stage: "analyze" })).includes("## Duties"));
 	check("этап записан", loadActive(dir)!.fm.stage === "analyze");
 
 	const logged = await call("volna_journal", {
@@ -68,7 +68,7 @@ export async function run(): Promise<void> {
 	check("поиск работает", toolText(await call("volna_recall", { query: "экспорт отчёта" })).includes("Найдено"));
 
 	const advocate = await call("volna_advocate", {});
-	check("адвокат на пустом дереве не падает", toolText(advocate).includes("проверять нечего"), toolText(advocate).slice(0, 70));
+	check("адвокат на пустом дереве не падает", toolText(advocate).includes("Изменений не видно"), toolText(advocate).slice(0, 70));
 
 	writeFileSync(join(volnaDir, "project.md"), `# Проект
 

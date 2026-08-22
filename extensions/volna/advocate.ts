@@ -7,11 +7,12 @@
  * этот код, и судит по диффу, а не по намерению.
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Usage } from "@earendil-works/pi-ai";
+import { collectChanges } from "./changes.ts";
 import { stamp } from "./journal.ts";
 import { packageRoot, volnaPaths, workspaceRoot } from "./paths.ts";
 
@@ -30,6 +31,8 @@ export interface AdvocateInput {
 	timeoutMs?: number;
 	/** Оставить расширения pi включёнными: нужно, когда провайдер модели регистрируется расширением. */
 	keepExtensions?: boolean;
+	/** Профиль проекта: из него берётся источник изменений (команда проекта, игнор). */
+	profile?: Record<string, string>;
 }
 
 export interface AdvocateResult {
@@ -37,6 +40,10 @@ export interface AdvocateResult {
 	report: string;
 	diffPath: string;
 	diffStat: string;
+	/** Откуда взялись изменения: git, svn, hg, команда проекта, снимок «Волны». */
+	changeSource: string;
+	changeBase: string;
+	changeNotes: string[];
 	filesChanged: number;
 	exitCode: number;
 	stderr: string;
@@ -59,74 +66,39 @@ function emptyUsage(): Usage {
 }
 
 /**
- * Дифф в файл, а не в промпт: размер диффа не должен решать, поместится ли проверка в контекст.
+ * Изменения в файл, а не в промпт: размер диффа не должен решать, поместится ли проверка в контекст.
  * Родительская сессия дифф не читает вовсе - она за него и так заплатила при правках.
+ *
+ * Откуда берутся изменения, решает changes.ts: git, svn, hg, команда проекта или снимок дерева.
  */
 export async function collectDiff(
 	exec: ExecLike,
 	volnaDir: string,
 	task: string,
 	base: string,
+	profile: Record<string, string> = {},
 	signal?: AbortSignal,
-): Promise<{ path: string; stat: string; filesChanged: number; empty: boolean }> {
-	const root = workspaceRoot(volnaDir);
+): Promise<{ path: string; stat: string; filesChanged: number; empty: boolean; kind: string; base: string; notes: string[] }> {
 	const paths = volnaPaths(volnaDir);
 	const dir = join(paths.root, "advocate");
 	mkdirSync(dir, { recursive: true });
 
-	const diff = await exec("git", ["-C", root, "diff", base], { signal });
-	const stat = await exec("git", ["-C", root, "diff", "--stat", base], { signal });
-	const untracked = await exec("git", ["-C", root, "ls-files", "--others", "--exclude-standard"], { signal });
-
-	const newFiles = untracked.stdout
-		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.filter((line) => line && !line.startsWith(".volna/"));
-
-	let body = diff.stdout;
-	for (const file of newFiles) {
-		body += `\n\n=== новый файл, ещё не в индексе: ${file} ===\n${newFileContent(join(root, file))}`;
-	}
-
+	const changes = await collectChanges(exec, { volnaDir, profile, base, signal });
 	const path = join(dir, `${task}-${stamp().replace(/[^\d]/g, "")}.diff`);
-	writeFileSync(path, body || "(изменений нет)", "utf8");
-	const filesChanged = (stat.stdout.match(/\|/g) || []).length + newFiles.length;
+	writeFileSync(path, changes.diff || "(изменений нет)", "utf8");
+
+	const stat = changes.files.length
+		? changes.files.map((file) => `${file.status}: ${file.path}`).join("\n")
+		: "";
 	return {
 		path,
-		stat: [stat.stdout.trim(), newFiles.length ? `новые файлы: ${newFiles.join(", ")}` : ""].filter(Boolean).join("\n"),
-		filesChanged,
-		empty: !body.trim() && newFiles.length === 0,
+		stat,
+		filesChanged: changes.files.length,
+		empty: changes.files.length === 0 && !changes.diff.trim(),
+		kind: changes.kind,
+		base: changes.base,
+		notes: changes.notes,
 	};
-}
-
-/** Больше этого файл в дифф не вставляется: адвокат прочитает его сам, если понадобится. */
-const MAX_NEW_FILE_BYTES = 256 * 1024;
-
-/**
- * Содержимое ещё не проиндексированного файла для диффа. Крупные и бинарные файлы заменяются
- * строкой с путём: дифф читает модель с ограниченным контекстом, и один забытый в дереве архив
- * вытеснил бы из проверки всё остальное.
- */
-function newFileContent(absolute: string): string {
-	let size = 0;
-	try {
-		size = statSync(absolute).size;
-	} catch {
-		return "(файл недоступен)";
-	}
-	if (size > MAX_NEW_FILE_BYTES) {
-		return `(файл ${Math.round(size / 1024)} КБ - в дифф не вставлен, читай его сам: ${absolute})`;
-	}
-	let buffer: Buffer;
-	try {
-		buffer = readFileSync(absolute);
-	} catch {
-		return "(файл недоступен)";
-	}
-	if (buffer.subarray(0, 8192).includes(0)) {
-		return `(бинарный файл, ${Math.round(size / 1024)} КБ: ${absolute})`;
-	}
-	return buffer.toString("utf8");
 }
 
 /**
@@ -215,7 +187,7 @@ export async function runAdvocate(
 	onProgress?: RunProgress,
 ): Promise<AdvocateResult> {
 	const base = input.base?.trim() || "HEAD";
-	const diff = await collectDiff(exec, input.volnaDir, input.task, base, signal);
+	const diff = await collectDiff(exec, input.volnaDir, input.task, base, input.profile ?? {}, signal);
 
 	const systemPromptPath = join(packageRoot(), "skills", "volna-flow", "agents", "advocate.md");
 	const systemPrompt = readFileSync(systemPromptPath, "utf8");
@@ -237,13 +209,15 @@ export async function runAdvocate(
 	if (input.model) args.push("--model", input.model);
 
 	const prompt = [
-		`Задача ${input.task}. Проверь изменения против HEAD-базы ${base}.`,
+		`Задача ${input.task}. Проверь сделанные изменения.`,
+		`Источник изменений: ${diff.kind}, база сравнения: ${diff.base}.`,
 		"",
-		`Дифф целиком лежит в файле: ${diff.path}`,
+		`Изменения целиком лежат в файле: ${diff.path}`,
 		"Читай его инструментом read (файл может быть большим - читай частями), при необходимости",
-		"смотри исходники в рабочем дереве и историю через bash git.",
+		"смотри исходники в рабочем дереве.",
+		diff.notes.length ? `\nЧто знать про полноту этих данных:\n- ${diff.notes.join("\n- ")}` : "",
 		"",
-		"Сводка изменений:",
+		"Изменённые файлы:",
 		diff.stat || "(пусто)",
 		"",
 		input.focus ? `На что смотреть в первую очередь: ${input.focus}` : "",
@@ -259,6 +233,9 @@ export async function runAdvocate(
 		report: "",
 		diffPath: diff.path,
 		diffStat: diff.stat,
+		changeSource: diff.kind,
+		changeBase: diff.base,
+		changeNotes: diff.notes,
 		filesChanged: diff.filesChanged,
 		exitCode: 0,
 		stderr: "",
@@ -269,7 +246,10 @@ export async function runAdvocate(
 
 	if (diff.empty) {
 		result.verdict = "нужен человек";
-		result.report = "Изменений против базы нет - проверять нечего. Убедись, что правки сделаны и база указана верно.";
+		result.report = [
+			`Изменений не видно: источник - ${diff.kind}, база - ${diff.base}.`,
+			diff.notes.length ? `Причина может быть здесь: ${diff.notes.join("; ")}.` : "Убедись, что правки сделаны и база указана верно.",
+		].join(" ");
 		try {
 			unlinkSync(tmpPromptPath);
 		} catch {}
