@@ -151,7 +151,7 @@ export function readProfile(volnaDir: string): Record<string, string> {
 	return out;
 }
 
-/** Значение профиля не заполнено: в файле остался плейсхолдер шаблона «<нет|playwright>». */
+/** Значение профиля не заполнено: в файле остался плейсхолдер шаблона «<chrome-devtools|нет>». */
 export function isPlaceholder(value: string | undefined): boolean {
 	return /^<.*>$/.test(String(value ?? "").trim());
 }

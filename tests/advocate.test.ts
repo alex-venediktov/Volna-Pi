@@ -34,7 +34,9 @@ export async function run(): Promise<void> {
 	check("вердикт разбирается", parseVerdict("...текст...\nВЕРДИКТ: дефекты") === "дефекты");
 	check("вердикт не выдумывается", parseVerdict("всё хорошо") === "не определён");
 
-	const visual = await runVisualCheck(exec, { volnaDir, task: "test-task", url: "http://127.0.0.1:9/" });
-	check("визуальная проверка не падает без playwright", visual.verdict === "не выполнено", visual.verdict);
-	check("сказано, чего не хватает", visual.summary.toLowerCase().includes("playwright"), visual.summary.slice(0, 80));
+	// заведомо закрытый порт: проверка обязана честно сказать, что браузера нет, а не упасть
+	const visual = await runVisualCheck({ volnaDir, task: "test-task", url: "http://127.0.0.1:9/", endpoint: "http://127.0.0.1:9" });
+	check("без браузера проверка не падает", visual.verdict === "не выполнено", visual.verdict);
+	check("сказано, что браузер не отвечает", visual.summary.includes("не отвечает"), visual.summary.slice(0, 90));
+	check("подсказан способ поднять браузер", visual.summary.includes("chrome_devtools_navigate") || visual.summary.includes("remote-debugging-port"));
 }

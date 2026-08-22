@@ -5,9 +5,9 @@
  * решила» было бы источником самых непонятных ошибок.
  */
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { probeEndpoint, resolveEndpoint } from "./cdp.ts";
 import { enterStage, intake, skipStage, statusReport } from "./core.ts";
 import { initVolna } from "./init.ts";
 import { journalIssues, stamp } from "./journal.ts";
@@ -138,9 +138,9 @@ export function registerCommands(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("volna:doctor", {
-		description: "Волна: проверить настройку - .volna, профиль, состояние, git, playwright, запуск адвоката",
+		description: "Волна: проверить настройку - .volna, профиль, состояние, git, браузер, запуск адвоката",
 		handler: async (_args, ctx) => {
-			const text = doctorReport(ctx.cwd);
+			const text = await doctorReport(ctx.cwd);
 			pi.sendMessage({ customType: "volna-doctor", content: text, display: true }, { triggerTurn: false });
 		},
 	});
@@ -173,7 +173,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 }
 
 /** Проверки настройки. Каждая строка отвечает на вопрос «что сломается, если этого нет». */
-export function doctorReport(cwd: string): string {
+export async function doctorReport(cwd: string): Promise<string> {
 	const lines: string[] = ["# Волна: проверка настройки", ""];
 	const volnaDir = findVolnaDir(cwd);
 	if (!volnaDir) {
@@ -222,21 +222,13 @@ export function doctorReport(cwd: string): string {
 			: "- запуск адвоката: подпроцесс пойдёт командой pi из PATH",
 	);
 
-	lines.push(`- playwright: ${playwrightState(root)}`);
+	const endpointInfo = resolveEndpoint(profileValue(profile, "endpoint браузера") || undefined);
+	const browser = await probeEndpoint(endpointInfo.endpoint, 2000);
+	lines.push(
+		browser
+			? `- браузер: ${browser} на ${endpointInfo.endpoint} (адрес из: ${endpointInfo.source}) - визуальная проверка доступна`
+			: `- браузер: ${endpointInfo.endpoint} не отвечает (адрес из: ${endpointInfo.source}). Визуальный этап поднимет его вызовом chrome_devtools_navigate${endpointInfo.autoLaunchEnabled ? "" : "; автозапуск выключен в pi-chrome-devtools.json"}`,
+	);
 	lines.push("", `Проверено ${stamp()}.`);
 	return lines.join("\n");
-}
-
-/** Есть ли playwright в проверяемом проекте. Визуальный этап опционален - его отсутствие не ошибка. */
-function playwrightState(root: string): string {
-	try {
-		const requireFromProject = createRequire(join(root, "package.json"));
-		requireFromProject.resolve("playwright");
-		return "есть в проекте (визуальная проверка доступна)";
-	} catch {}
-	try {
-		createRequire(import.meta.url).resolve("playwright");
-		return "есть рядом с пакетом Волны";
-	} catch {}
-	return "нет. Визуальный этап пропустится: npm i -D playwright && npx playwright install chromium";
 }

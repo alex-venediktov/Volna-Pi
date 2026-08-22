@@ -1,5 +1,5 @@
 /** Инструменты вызываются тем же путём, каким их вызывает модель: через registerTools. */
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { initVolna } from "../extensions/volna/init.ts";
 import { loadActive, readState } from "../extensions/volna/state.ts";
@@ -70,8 +70,14 @@ export async function run(): Promise<void> {
 	const advocate = await call("volna_advocate", {});
 	check("адвокат на пустом дереве не падает", toolText(advocate).includes("проверять нечего"), toolText(advocate).slice(0, 70));
 
+	writeFileSync(join(volnaDir, "project.md"), `# Проект
+
+## Профиль
+
+- endpoint браузера: http://127.0.0.1:9
+`, "utf8");
 	const visual = await call("volna_visual", { url: "http://127.0.0.1:9/" });
-	check("визуальная проверка сообщает о причине", toolText(visual).toLowerCase().includes("playwright") || toolText(visual).includes("не выполнено"));
+	check("визуальная проверка сообщает, что браузера нет", toolText(visual).includes("не отвечает"), toolText(visual).slice(0, 80));
 
 	check("задача закрыта", toolText(await call("volna_finish", { summary: "CSV-экспорт добавлен, тест зелёный", hours: "1.5" })).includes("закрыта"));
 	check("активная задача снята", readState(volnaDir).active === null);

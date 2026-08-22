@@ -279,11 +279,14 @@ export function registerTools(pi: ExtensionAPI): void {
 		name: "volna_visual",
 		label: "Волна: визуальная проверка",
 		description:
-			"Опциональная визуальная проверка веб-выхода: открыть страницу в браузере, проделать шаги, собрать ошибки " +
-			"консоли, необработанные исключения и ответы 4xx/5xx, снять скриншот. Требует playwright в проверяемом проекте.",
+			"Опциональная визуальная проверка веб-выхода в браузере, которым управляет расширение " +
+			"pi-chrome-devtools: открыть страницу, проделать шаги, собрать ошибки консоли, необработанные " +
+			"исключения и ответы 4xx/5xx, снять скриншот. Браузер должен быть запущен - поднимает его " +
+			"chrome_devtools_navigate.",
 		promptSnippet: "Открыть страницу в браузере и собрать ошибки консоли со скриншотом",
 		promptGuidelines: [
 			"Вызывай volna_visual на этапе visual, когда изменения видны в браузере; консольного проекта это не касается.",
+			"volna_visual сказал, что браузер не отвечает - подними его вызовом chrome_devtools_navigate и повтори volna_visual.",
 		],
 		parameters: Type.Object({
 			url: Type.String({ description: "Адрес страницы, например http://localhost:5173/" }),
@@ -305,7 +308,9 @@ export function registerTools(pi: ExtensionAPI): void {
 			wait_ms: Type.Optional(Type.Number({ description: "Пауза перед скриншотом, мс" })),
 			viewport_width: Type.Optional(Type.Number()),
 			viewport_height: Type.Optional(Type.Number()),
-			headed: Type.Optional(Type.Boolean({ description: "Показать окно браузера человеку" })),
+			reuse_page: Type.Optional(
+				Type.Boolean({ description: "Работать в уже открытой вкладке вместо новой: состояние набрано руками" }),
+			),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const volnaDir = findVolnaDir(ctx.cwd);
@@ -316,7 +321,6 @@ export function registerTools(pi: ExtensionAPI): void {
 
 			onUpdate?.({ content: [{ type: "text", text: `Открываю ${params.url}...` }], details: {} });
 			const report = await runVisualCheck(
-				pi.exec,
 				{
 					volnaDir,
 					task,
@@ -328,20 +332,23 @@ export function registerTools(pi: ExtensionAPI): void {
 						params.viewport_width && params.viewport_height
 							? { width: params.viewport_width, height: params.viewport_height }
 							: undefined,
-					headless: params.headed !== true,
+					reusePage: params.reuse_page === true,
+					endpoint: profileValue(profile, "endpoint браузера") || undefined,
 				},
 				signal,
 			);
 
 			const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
-				{ type: "text", text: `Визуальная проверка: ${report.verdict}\n\n${report.summary}` },
+				{ type: "text", text: `Визуальная проверка: ${report.verdict}
+
+${report.summary}` },
 			];
 			const attach = profileValue(profile, "скриншот модели").toLowerCase();
 			if (report.screenshotPath && (attach === "да" || attach === "yes")) {
 				const image = screenshotContent(report.screenshotPath);
 				if (image) content.push(image);
 			}
-			return { content, details: { verdict: report.verdict, screenshotPath: report.screenshotPath, raw: report.raw } };
+			return { content, details: { verdict: report.verdict, screenshotPath: report.screenshotPath, ...report.details } };
 		},
 	});
 

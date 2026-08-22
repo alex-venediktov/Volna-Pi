@@ -2,7 +2,7 @@
  * Прогон всех тестов: node --experimental-strip-types tests/all.ts (или npm test).
  *
  * Модели тесты не касаются - проверяется то, что должно работать одинаково при любой модели:
- * журнал, переходы этапов, гейты, сбор диффа, поведение без playwright.
+ * журнал, переходы этапов, гейты, сбор диффа, поведение без запущенного браузера.
  */
 import { results } from "./harness.ts";
 import { run as runAdvocate } from "./advocate.test.ts";
