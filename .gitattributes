@@ -1,0 +1,3 @@
+# Пакет ставится и на Linux с macOS: в репозитории только LF
+* text=auto eol=lf
+*.png binary

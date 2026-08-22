@@ -1,0 +1,57 @@
+{
+  "name": "@alex-venediktov/volna-pi",
+  "version": "0.1.0",
+  "description": "Волна для pi: ведение задачи по флоу этапов с журналом работ, адвокатом дьявола в отдельном процессе и опциональной визуальной проверкой",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "volna",
+    "workflow",
+    "journal"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/alex-venediktov/Volna-Pi.git"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/volna"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types tests/all.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^5.9.3"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-agent-core": {
+      "optional": true
+    },
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  }
+}
