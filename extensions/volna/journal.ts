@@ -115,7 +115,7 @@ export function createJournal(volnaDir: string, options: CreateJournalOptions): 
 			что: "принято задание, создан журнал",
 			зачем: "работа должна быть восстановима по журналу без остатков контекста",
 			как: `источник задания: ${options.source}`,
-			сделано: `журнал ${paths.journal(options.task)}`,
+			сделано: `журнал .volna/journal/TASK-${options.task}.md`,
 			осталось: "разбор задания",
 			задание: options.assignment.trim() || "(текст задания не передан)",
 		},

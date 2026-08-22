@@ -112,6 +112,7 @@ export function registerTools(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"End every stage with volna_journal action=log; without it the stage counts as unfinished.",
 			"Before handing the turn back to the user and before compaction, call action=state.",
+			"Anything that waits for the user or external data also goes to action=open.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(["log", "state", "open", "check"] as const),
