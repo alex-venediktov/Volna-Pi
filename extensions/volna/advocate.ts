@@ -7,14 +7,14 @@
  * этот код, и судит по диффу, а не по намерению.
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Usage } from "@earendil-works/pi-ai";
 import { collectChanges } from "./changes.ts";
 import { stamp } from "./journal.ts";
-import { packageRoot, volnaPaths, workspaceRoot } from "./paths.ts";
+import { advocateDiffDir, packageRoot, workspaceRoot } from "./paths.ts";
 
 export type Verdict = "чисто" | "дефекты" | "нужен человек" | "не определён";
 
@@ -79,8 +79,7 @@ export async function collectDiff(
 	profile: Record<string, string> = {},
 	signal?: AbortSignal,
 ): Promise<{ path: string; stat: string; filesChanged: number; empty: boolean; kind: string; base: string; notes: string[] }> {
-	const paths = volnaPaths(volnaDir);
-	const dir = join(paths.root, "advocate");
+	const dir = advocateDiffDir(volnaDir, task);
 	mkdirSync(dir, { recursive: true });
 
 	const changes = await collectChanges(exec, { volnaDir, profile, base, signal });
@@ -99,6 +98,14 @@ export async function collectDiff(
 		base: changes.base,
 		notes: changes.notes,
 	};
+}
+
+/** Убрать диффы задачи: они нужны, пока задача идёт, и не переживают её закрытие. */
+export function dropDiffs(volnaDir: string, task: string): boolean {
+	const dir = advocateDiffDir(volnaDir, task);
+	if (!existsSync(dir)) return false;
+	rmSync(dir, { recursive: true, force: true });
+	return true;
 }
 
 /**

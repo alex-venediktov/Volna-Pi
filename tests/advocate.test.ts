@@ -1,7 +1,7 @@
 /** Дифф для адвоката и разбор вердикта. Настоящий git, без обращений к модели. */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { collectDiff, parseVerdict } from "../extensions/volna/advocate.ts";
+import { collectDiff, dropDiffs, parseVerdict } from "../extensions/volna/advocate.ts";
 import { initVolna } from "../extensions/volna/init.ts";
 import { runVisualCheck } from "../extensions/volna/visual.ts";
 import { check, exec, sandbox } from "./harness.ts";
@@ -29,7 +29,8 @@ export async function run(): Promise<void> {
 	check("бинарный файл не вставлен", body.includes("бинарный файл"), "blob.bin");
 	check("источник изменений назван", diff.kind === "git", diff.kind);
 	check("сводка изменений есть", diff.stat.includes("list.js"));
-	check("дифф лежит в .volna/advocate", diff.path.includes("advocate"));
+	check("дифф лежит вне проекта, в системном temp", !diff.path.includes(".volna") && diff.path.includes("volna-advocate"), diff.path);
+	check("диффы задачи убираются", dropDiffs(volnaDir, "test-task") && !existsSync(diff.path));
 	check("служебное «Волны» в дифф не попало", !body.includes("новый файл, ещё не в индексе: .volna"));
 
 	check("вердикт разбирается", parseVerdict("...текст...\nВЕРДИКТ: дефекты") === "дефекты");

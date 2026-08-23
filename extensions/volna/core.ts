@@ -6,8 +6,9 @@
  * этапа возвращается тем же вызовом, и модель продолжает работу в том же ходе.
  */
 import { readFileSync } from "node:fs";
+import { dropDiffs } from "./advocate.ts";
 import { resolveAssignment } from "./assignment.ts";
-import { needsSnapshot, snapshotExists, takeSnapshot } from "./changes.ts";
+import { dropSnapshot, needsSnapshot, snapshotExists, takeSnapshot } from "./changes.ts";
 import {
 	appendLogSection,
 	createJournal,
@@ -472,6 +473,12 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 	writeState(volnaDir, { active: null, updated: at });
 	if (rest.length) warnings.push(`незакрытых частей ${rest.length} - они помечены снятыми, остаток назван в итоге`);
 
+	// Рабочие файлы задачи живут ровно столько, сколько задача: дифф адвоката пересобирается на
+	// каждом прогоне, снимок дерева весит как всё дерево, а сравнивать с ним после закрытия нечего.
+	const cleaned: string[] = [];
+	if (dropDiffs(volnaDir, active.task)) cleaned.push("диффы адвоката");
+	if (dropSnapshot(volnaDir, active.task)) cleaned.push("снимок дерева");
+
 	return {
 		ok: true,
 		closed: true,
@@ -479,8 +486,11 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 			`Задача ${active.task} закрыта (${at}), запись close, итерация ${iteration}.`,
 			"Активная задача снята: шапка и гейты по ней больше не работают.",
 			`Журнал остался: ${displayPath(volnaDir, active.journalPath)}.`,
+			cleaned.length ? `Убрано за задачей: ${cleaned.join(", ")}.` : "",
 			"Следующую задачу начинай с чистого контекста: /new или /clear, затем /volna:task.",
-		].join(" "),
+		]
+			.filter(Boolean)
+			.join(" "),
 		stage: "close",
 		iteration,
 		task: active.task,

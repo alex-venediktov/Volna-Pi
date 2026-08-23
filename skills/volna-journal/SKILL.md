@@ -78,5 +78,5 @@ not the action: `260822-visual-console-errors` beats `260822-fix-bug`.
 
 ## Not committed
 
-`.volna/state.json`, `.volna/journal/`, `.volna/visual/`, `.volna/advocate/`, `.volna/baseline/` are local:
+`.volna/state.json`, `.volna/journal/`, `.volna/visual/`, `.volna/baseline/` are local:
 they are one person's work in one session. `.volna/project.md` is committed — the profile is shared.

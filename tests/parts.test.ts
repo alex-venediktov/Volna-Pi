@@ -1,5 +1,5 @@
 /** Задача из нескольких частей: список в «Состоянии», закрытие части, продолжение после /clear. */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { compareWithSnapshot } from "../extensions/volna/changes.ts";
 import { contextHeader, enterStage, finishTask, intake, resumeTask, statusReport } from "../extensions/volna/core.ts";
@@ -115,4 +115,10 @@ async function snapshotMovesWithPart(): Promise<void> {
 
 	writeFileSync(join(dir, "app.js"), "export const step = 3;\n", "utf8");
 	check("правки следующей части видны отдельно", compareWithSnapshot(volnaDir, task, {}).files.length === 1);
+
+	finishTask(dir, { summary: "вторая половина готова", hours: "1", part: true });
+	const done = finishTask(dir, { summary: "шаги переведены целиком", hours: "3" });
+	check("задача закрыта целиком", done.ok && done.closed, done.message.slice(0, 60));
+	check("снимок дерева убран за задачей", !existsSync(join(volnaDir, "baseline", task)));
+	check("про уборку сказано человеку", done.message.includes("Убрано за задачей"), done.message.slice(-160));
 }

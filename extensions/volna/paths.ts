@@ -5,7 +5,9 @@
  * Подъём за .volna останавливается на корне репозитория (каталог с .git): «Волна» работает
  * только там, где её развернули, а .volna соседнего проекта выше по дереву - чужая настройка.
  */
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +45,18 @@ export function volnaPaths(volnaDir: string) {
 		journal: (task: string) => join(volnaDir, "journal", `TASK-${task}.md`),
 		log: (task: string) => join(volnaDir, "journal", "logs", `TASK-${task}.log.md`),
 	};
+}
+
+/**
+ * Куда класть дифф, который читает адвокат: системный temp, а не .volna. Файл нужен ровно на один
+ * прогон - дифф не идёт через промпт, - и в проекте ему делать нечего.
+ *
+ * Хвост из хэша пути разводит одноимённые задачи разных проектов: уборка на закрытии сносит
+ * каталог целиком и чужие диффы задеть не должна.
+ */
+export function advocateDiffDir(volnaDir: string, task: string): string {
+	const key = createHash("sha1").update(resolve(volnaDir).split("\\").join("/").toLowerCase()).digest("hex").slice(0, 8);
+	return join(tmpdir(), "volna-advocate", `${task.replace(/[^\p{L}\p{N}._-]+/gu, "_")}-${key}`);
 }
 
 /** Корень пакета: отсюда читаются инструкции этапов, промпт адвоката и шаблоны. */

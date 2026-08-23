@@ -314,6 +314,14 @@ export function takeSnapshot(volnaDir: string, task: string, profile: Record<str
 	return { files: Object.keys(index.files).length, skipped };
 }
 
+/** Убрать снимок задачи: после закрытия сравнивать с ним нечего, а весит он как всё дерево. */
+export function dropSnapshot(volnaDir: string, task: string): boolean {
+	const dir = snapshotDir(volnaDir, task);
+	if (!existsSync(dir)) return false;
+	rmSync(dir, { recursive: true, force: true });
+	return true;
+}
+
 export function snapshotExists(volnaDir: string, task: string): boolean {
 	return existsSync(join(snapshotDir(volnaDir, task), "index.json"));
 }

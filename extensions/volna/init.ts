@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { packageRoot, VOLNA_DIR_NAME, volnaPaths } from "./paths.ts";
 import { stamp } from "./journal.ts";
 
-const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/", ".volna/advocate/", ".volna/baseline/"];
+const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/", ".volna/baseline/"];
 
 export interface InitResult {
 	created: string[];
