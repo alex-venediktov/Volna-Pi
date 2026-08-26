@@ -4,18 +4,24 @@
  *
  * Журналы и служебные файлы локальные и не коммитятся: они содержат ход работы одного человека
  * в одной сессии. Коммитится профиль проекта - он общий для команды.
+ *
+ * Разворачивать «Волну» вне git можно: журнал и этапы от него не зависят. Но правки она читает
+ * только из git, поэтому этап advocate и доставка в таком проекте работать не будут - об этом
+ * говорится сразу, а не на первом же вызове адвоката.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { packageRoot, VOLNA_DIR_NAME, volnaPaths } from "./paths.ts";
 import { stamp } from "./journal.ts";
 
-const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/", ".volna/baseline/"];
+const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/"];
 
 export interface InitResult {
 	created: string[];
 	skipped: string[];
 	volnaDir: string;
+	/** Чего в этом проекте не будет и почему: сейчас это отсутствие git. */
+	warnings: string[];
 	message: string;
 }
 
@@ -61,20 +67,32 @@ export function initVolna(cwd: string): InitResult {
 		created.push(paths.state);
 	}
 
+	// .gitignore заводится только там, где есть git: в проекте без него это правила для инструмента,
+	// которого здесь нет, и первым же вопросом будет «кто это создал и зачем».
+	const warnings: string[] = [];
+	const inGit = existsSync(join(root, ".git"));
 	const gitignore = join(root, ".gitignore");
-	const missing = IGNORE_RULES.filter((rule) => !ignoreHasRule(gitignore, rule));
-	if (missing.length) {
-		const prefix = existsSync(gitignore) && !readFileSync(gitignore, "utf8").endsWith("\n") ? "\n" : "";
-		appendFileSync(gitignore, `${prefix}\n# Волна: журналы и служебное локальны, профиль проекта коммитится\n${missing.join("\n")}\n`, "utf8");
-		created.push(`${gitignore} (+${missing.length} правил)`);
+	if (!inGit) {
+		warnings.push(
+			"git-репозитория здесь нет: правки «Волна» читает только из git, поэтому этап advocate и доставка " +
+				"в этом проекте работать не будут. Журнал, этапы и остальной флоу - будут. Правила .gitignore не добавлены.",
+		);
 	} else {
-		skipped.push(gitignore);
+		const missing = IGNORE_RULES.filter((rule) => !ignoreHasRule(gitignore, rule));
+		if (missing.length) {
+			const prefix = existsSync(gitignore) && !readFileSync(gitignore, "utf8").endsWith("\n") ? "\n" : "";
+			appendFileSync(gitignore, `${prefix}\n# Волна: журналы и служебное локальны, профиль проекта коммитится\n${missing.join("\n")}\n`, "utf8");
+			created.push(`${gitignore} (+${missing.length} правил)`);
+		} else {
+			skipped.push(gitignore);
+		}
 	}
 
 	const message = [
 		`«Волна» развёрнута в ${root}.`,
 		created.length ? `Создано: ${created.join(", ")}.` : "",
 		skipped.length ? `Уже было: ${skipped.join(", ")}.` : "",
+		warnings.length ? warnings.join(" ") : "",
 		"",
 		`Следующий шаг - заполнить профиль проекта в ${paths.project}: строки со значениями в угловых скобках`,
 		"не заполнены, и этап, которому такая строка нужна, остановится и спросит.",
@@ -83,7 +101,7 @@ export function initVolna(cwd: string): InitResult {
 		.filter(Boolean)
 		.join("\n");
 
-	return { created, skipped, volnaDir, message };
+	return { created, skipped, volnaDir, warnings, message };
 }
 
 function ignoreHasRule(gitignore: string, rule: string): boolean {

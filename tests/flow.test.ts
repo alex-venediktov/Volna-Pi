@@ -27,7 +27,7 @@ export async function run(): Promise<void> {
 	check("журнал читается", active.task === task);
 	check("задание в логе дословно", active.logText.includes("белый экран"));
 
-	const analyze = enterStage(dir, "analyze");
+	const analyze = await enterStage(dir, "analyze");
 	check("вход в этап выдал инструкцию", analyze.ok && analyze.message.includes("Stage 2 · analyze"));
 	check("контекст задачи приложен", analyze.message.includes("## Task") && analyze.message.includes("Status from the journal"));
 	check("этап записан в журнал", loadActive(dir)!.fm.stage === "analyze");
@@ -36,15 +36,15 @@ export async function run(): Promise<void> {
 		stage: "analyze",
 		fields: { что: "разобрал список", как: "grep по OrdersList", сделано: "src/orders/List.tsx:42", осталось: "-" },
 	});
-	enterStage(dir, "spec");
+	await enterStage(dir, "spec");
 	check("пройденный этап отмечен", (loadActive(dir)!.fm.stages_done as string[]).includes("analyze"));
 
-	enterStage(dir, "implement", { reason: "первая правка" });
+	await enterStage(dir, "implement", { reason: "первая правка" });
 	appendLogSection(volnaDir, task, {
 		stage: "implement",
 		fields: { что: "добавил заглушку", как: "src/orders/List.tsx", сделано: "заглушка рендерится", осталось: "-" },
 	});
-	const second = enterStage(dir, "implement", { reason: "находка адвоката: не покрыт случай ошибки загрузки" });
+	const second = await enterStage(dir, "implement", { reason: "находка адвоката: не покрыт случай ошибки загрузки" });
 	check("повторный заход открыл итерацию", second.iteration === 2, String(second.iteration));
 	check("причина возврата в инструкции", second.message.includes("находка адвоката"));
 	check("итерация считается по логу", nextIteration(loadActive(dir)!.logText, "implement") === 2);

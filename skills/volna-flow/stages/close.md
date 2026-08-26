@@ -14,8 +14,8 @@ and the closing itself needs their explicit yes.
    active task is cleared and the header and gates stop working for it.
 5. **Call `volna_finish`** with the outcome and hours. It writes the `close` section, rewrites Status and
    clears the active task.
-6. **Tidy up**: temporary files, diagnostic scripts, debug code. Advocate diffs, snapshots and screenshots
-   in `.volna/` are local and need no cleaning.
+6. **Tidy up**: temporary files, diagnostic scripts, debug code. Advocate diffs and screenshots are local
+   and need no cleaning.
 
 **Split task.** A part is closed with `volna_finish part=true`: outcome and hours **of the part**, the part
 marked done in the list, the task left active and the branch untouched — the hours are summed at the full

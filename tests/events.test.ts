@@ -50,7 +50,7 @@ export async function run(): Promise<void> {
 
 	intake(dir, { assignment: "Добавить фильтр по дате в список заказов" });
 	const task = readState(volnaDir).active!;
-	enterStage(dir, "analyze");
+	await enterStage(dir, "analyze");
 
 	const header = await handlers.get("before_agent_start")({ systemPrompt: "исходный промпт" }, ctx);
 	check("шапка идёт отдельным сообщением", header?.message?.customType === "volna-header");
@@ -62,10 +62,10 @@ export async function run(): Promise<void> {
 	check("правка внутри .volna разрешена", (await toolCall("edit", { path: join(volnaDir, "project.md") })) === undefined);
 	check("чтение не блокируется", (await toolCall("read", { path: join(dir, "src.js") })) === undefined);
 
-	enterStage(dir, "implement", { reason: "правки по плану" });
+	await enterStage(dir, "implement", { reason: "правки по плану" });
 	check("на implement правки разрешены", (await toolCall("write", { path: join(dir, "src", "orders.js") })) === undefined);
 
-	enterStage(dir, "plan", { reason: "вернулись к плану" });
+	await enterStage(dir, "plan", { reason: "вернулись к плану" });
 	check("на plan гейт снова работает", (await toolCall("write", { path: join(dir, "a.js") }))?.block === true);
 	writeFileSync(join(volnaDir, "project.md"), "# Проект\n\n## Профиль\n\n- гейт правок: нет\n", "utf8");
 	check("строка профиля снимает гейт", (await toolCall("write", { path: join(dir, "a.js") })) === undefined);
@@ -78,7 +78,7 @@ export async function run(): Promise<void> {
 	check("при переполнении сжатие не отменяется", (await handlers.get("session_before_compact")({ reason: "overflow" }, ctx)) === undefined);
 
 	notices.length = 0;
-	enterStage(dir, "unit-tests");
+	await enterStage(dir, "unit-tests");
 	await toolCall("bash", { command: 'git commit -m "wip"' });
 	check("коммит без записи по этапу предупреждён", notices.some((note) => note.includes("записи в журнале ещё нет")));
 

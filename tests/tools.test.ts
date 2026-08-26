@@ -67,7 +67,8 @@ export async function run(): Promise<void> {
 	check("поиск работает", toolText(await call("volna_recall", { query: "экспорт отчёта" })).includes("Найдено"));
 
 	const advocate = await call("volna_advocate", {});
-	check("адвокат на пустом дереве не падает", toolText(advocate).includes("Изменений не видно"), toolText(advocate).slice(0, 70));
+	check("без git адвокат отказывается, а не проверяет что попало", toolText(advocate).includes("git-репозитория здесь нет"), toolText(advocate).slice(0, 90));
+	check("сказано, чем это лечится", toolText(advocate).includes("action=skip"), toolText(advocate).slice(-90));
 
 	writeFileSync(join(volnaDir, "project.md"), `# Проект
 

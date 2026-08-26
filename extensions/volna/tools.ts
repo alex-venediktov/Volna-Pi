@@ -56,7 +56,7 @@ export function registerTools(pi: ExtensionAPI): void {
 			const existing = findVolnaDir(ctx.cwd);
 			if (existing) return reply(`«Волна» уже развёрнута: ${existing}`, { volnaDir: existing });
 			const result = initVolna(ctx.cwd);
-			return reply(result.message, { volnaDir: result.volnaDir, created: result.created });
+			return reply(result.message, { volnaDir: result.volnaDir, created: result.created, warnings: result.warnings });
 		},
 	});
 
@@ -85,7 +85,7 @@ export function registerTools(pi: ExtensionAPI): void {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const result = params.assignment?.trim()
 				? intake(ctx.cwd, { assignment: params.assignment, title: params.title, type: params.type })
-				: resumeTask(ctx.cwd);
+				: await resumeTask(ctx.cwd, pi.exec);
 			if (!result.ok) throw new Error(result.message);
 			const text = [result.message, ...result.warnings.map((w) => `\nПредупреждение: ${w}`)].join("\n");
 			return reply(text, { task: result.task, stage: result.stage });
@@ -110,7 +110,7 @@ export function registerTools(pi: ExtensionAPI): void {
 			const result =
 				params.action === "skip"
 					? skipStage(ctx.cwd, params.stage, params.reason ?? "")
-					: enterStage(ctx.cwd, params.stage, { reason: params.reason });
+					: await enterStage(ctx.cwd, params.stage, { reason: params.reason, exec: pi.exec });
 			if (!result.ok) throw new Error(result.message);
 			const text = [result.message, ...result.warnings.map((w) => `\nПредупреждение: ${w}`)].join("\n");
 			return reply(text, { stage: result.stage, iteration: result.iteration, task: result.task });
@@ -236,7 +236,7 @@ export function registerTools(pi: ExtensionAPI): void {
 			"Verdict «дефекты» means open a new implement iteration via volna_stage with the findings as reason.",
 		],
 		parameters: Type.Object({
-			base: Type.Optional(Type.String({ description: "Comparison base for git, default HEAD" })),
+			base: Type.Optional(Type.String({ description: "Comparison base; default: the commit this part started on, from the journal" })),
 			focus: Type.Optional(Type.String({ description: "What to look at first: last findings, a branch, a risk" })),
 			model: Type.Optional(Type.String({ description: "Reviewer model; default from project profile" })),
 		}),
@@ -260,12 +260,11 @@ export function registerTools(pi: ExtensionAPI): void {
 				{
 					volnaDir: active.volnaDir,
 					task: active.task,
-					base: params.base,
+					base: params.base || taskField(active.fm, "part_base") || undefined,
 					focus: params.focus,
 					journalContext,
 					model: model === "наследовать" ? undefined : model,
 					keepExtensions: ["да", "yes"].includes(profileValue(profile, "расширения адвоката").toLowerCase()),
-					profile,
 					timeoutMs: 15 * 60 * 1000,
 				},
 				signal,
@@ -291,7 +290,7 @@ export function registerTools(pi: ExtensionAPI): void {
 
 			const text = [
 				`Адвокат: вердикт «${result.verdict}», изменённых файлов ${result.filesChanged}, вызовов инструментов ${result.toolCalls}.`,
-				`Источник изменений: ${result.changeSource}, база: ${result.changeBase}.`,
+				result.repo ? `База сравнения: ${result.changeBase}.` : "",
 				result.changeNotes.length ? `Про полноту данных: ${result.changeNotes.join("; ")}` : "",
 				result.model ? `Модель адвоката: ${result.model}` : "",
 				`Дифф: ${result.diffPath}`,
@@ -307,7 +306,7 @@ export function registerTools(pi: ExtensionAPI): void {
 				details: {
 					verdict: result.verdict,
 					diffPath: result.diffPath,
-					changeSource: result.changeSource,
+					repo: result.repo,
 					changeBase: result.changeBase,
 					filesChanged: result.filesChanged,
 					exitCode: result.exitCode,

@@ -6,9 +6,10 @@
  * этапа возвращается тем же вызовом, и модель продолжает работу в том же ходе.
  */
 import { readFileSync } from "node:fs";
+import type { Frontmatter } from "./frontmatter.ts";
 import { dropDiffs } from "./advocate.ts";
 import { resolveAssignment } from "./assignment.ts";
-import { dropSnapshot, needsSnapshot, snapshotExists, takeSnapshot } from "./changes.ts";
+import type { ExecLike } from "./changes.ts";
 import {
 	appendLogSection,
 	createJournal,
@@ -21,7 +22,8 @@ import {
 	stagesInLog,
 } from "./journal.ts";
 import { currentPart, markPart, partsFromState, partsHeadline, renderPartsText, unfinishedParts, writeParts } from "./parts.ts";
-import { findVolnaDir, volnaPaths } from "./paths.ts";
+import { currentCommit, dirtyFiles } from "./git.ts";
+import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import {
 	type ActiveTask,
 	displayPath,
@@ -134,7 +136,7 @@ export function intake(cwd: string, options: IntakeOptions): FlowResult {
  * Продолжение задачи после /clear: есть остаток по частям - поднять задачу и войти в spec следующей
  * части, не спрашивая «начинаем?». Ответ на этот вопрос человек дал, когда делил задачу.
  */
-export function resumeTask(cwd: string): FlowResult {
+export async function resumeTask(cwd: string, exec?: ExecLike): Promise<FlowResult> {
 	const guard = requireVolna(cwd);
 	if ("error" in guard) return { ok: false, message: guard.error, warnings: [] };
 	const active = loadActive(cwd);
@@ -164,7 +166,7 @@ export function resumeTask(cwd: string): FlowResult {
 	}
 
 	if (next.status === "не начата") writeParts(active.journalPath, markPart(parts, next.number, "в работе"));
-	const result = enterStage(cwd, "spec", { reason: `часть ${next.number}/${parts.length}: ${next.title}` });
+	const result = await enterStage(cwd, "spec", { reason: `часть ${next.number}/${parts.length}: ${next.title}`, exec });
 	if (!result.ok) return result;
 	return {
 		...result,
@@ -181,10 +183,12 @@ export function resumeTask(cwd: string): FlowResult {
 export interface EnterStageOptions {
 	/** Причина возврата на пройденный этап: находка адвоката, красный тест, вердикт человека. */
 	reason?: string;
+	/** Запуск команд: нужен на implement, чтобы записать точку начала части. Без него база не пишется. */
+	exec?: ExecLike;
 }
 
 /** Перейти на этап или открыть его новую итерацию. Возвращает инструкцию этапа для модели. */
-export function enterStage(cwd: string, stageName: string, options: EnterStageOptions = {}): FlowResult {
+export async function enterStage(cwd: string, stageName: string, options: EnterStageOptions = {}): Promise<FlowResult> {
 	const guard = requireVolna(cwd);
 	if ("error" in guard) return { ok: false, message: guard.error, warnings: [] };
 	const { volnaDir } = guard;
@@ -215,21 +219,32 @@ export function enterStage(cwd: string, stageName: string, options: EnterStageOp
 	if (previousStage && previousStage !== stage.name && logged.includes(previousStage) && !done.includes(previousStage)) {
 		done.push(previousStage);
 	}
-	updateFrontmatter(active.journalPath, { stage: stage.name, stages_done: done, updated: stamp() });
-
 	const warnings: string[] = [];
 	if (previousStage && logged.includes(previousStage) === false && previousStage !== stage.name) {
 		warnings.push(`этап ${previousStage} закрыт без записи в лог - запись придётся дописать (volna_journal, action=log)`);
 	}
 
-	// Снимок дерева нужен до правок: в проекте без системы контроля версий сравнивать иначе нечем,
-	// а понять задним числом, что было до правок, невозможно.
-	if (stage.name === "implement" && needsSnapshot(volnaDir, readProfile(volnaDir)) && !snapshotExists(volnaDir, active.task)) {
-		const snapshot = takeSnapshot(volnaDir, active.task, readProfile(volnaDir));
-		warnings.push(
-			`системы контроля версий в проекте нет - снял снимок дерева (${snapshot.files} файлов), по нему адвокат увидит правки`,
-		);
+	// Точка начала части: с неё адвокат считает правки. Пишется до первой правки и не трогается
+	// коммитами внутри части - иначе после коммита на deliver проверенное выпало бы из диффа.
+	const patch: Frontmatter = { stage: stage.name, stages_done: done, updated: stamp() };
+	if (stage.name === "implement" && options.exec && !taskField(active.fm, "part_base")) {
+		const root = workspaceRoot(volnaDir);
+		const head = await currentCommit(options.exec, root);
+		if (head) {
+			patch.part_base = head;
+			const dirty = await dirtyFiles(options.exec, root);
+			if (dirty.length) {
+				warnings.push(
+					`база адвоката этой части - ${head.slice(0, 8)}, но в дереве уже есть незакоммиченные правки (${dirty.length}): они войдут в дифф адвоката вместе с правками части`,
+				);
+			}
+		} else {
+			warnings.push(
+				"HEAD не разрешается в коммит: git-репозитория здесь нет либо в нём ещё нет коммитов - адвокату не с чем будет сравнивать",
+			);
+		}
 	}
+	updateFrontmatter(active.journalPath, patch);
 
 	const paths = volnaPaths(volnaDir);
 	const header = [
@@ -332,7 +347,7 @@ export interface FinishOptions {
 	summary: string;
 	hours?: string;
 	left?: string;
-	/** Закрыть только текущую часть: задача остаётся активной, ветка и снимок - тоже. */
+	/** Закрыть только текущую часть: задача остаётся активной, ветка - тоже. */
 	part?: boolean;
 }
 
@@ -396,18 +411,14 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 			},
 			{ logText: readFileSync(active.logPath, "utf8") },
 		);
+		// Часть принята - база адвоката сдвигается: следующая часть запишет свою на первой итерации
+		// implement, иначе адвокат пришёл бы к ней с правками предыдущей.
 		updateFrontmatter(active.journalPath, {
 			stage: "close",
 			stages_done: [...new Set([...taskList(active.fm, "stages_done"), "close"])],
+			part_base: "",
 			updated: at,
 		});
-
-		// Снимок дерева - база адвоката там, где системы контроля версий нет. Часть принята,
-		// значит база сдвигается: иначе адвокат следующей части придёт с правками предыдущей.
-		if (needsSnapshot(volnaDir, readProfile(volnaDir))) {
-			const snapshot = takeSnapshot(volnaDir, active.task, readProfile(volnaDir));
-			warnings.push(`снимок дерева пере-снят (${snapshot.files} файлов) - адвокат следующей части увидит только её правки`);
-		}
 
 		return {
 			ok: true,
@@ -473,11 +484,9 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 	writeState(volnaDir, { active: null, updated: at });
 	if (rest.length) warnings.push(`незакрытых частей ${rest.length} - они помечены снятыми, остаток назван в итоге`);
 
-	// Рабочие файлы задачи живут ровно столько, сколько задача: дифф адвоката пересобирается на
-	// каждом прогоне, снимок дерева весит как всё дерево, а сравнивать с ним после закрытия нечего.
+	// Дифф адвоката живёт ровно столько, сколько задача: он пересобирается на каждом прогоне.
 	const cleaned: string[] = [];
 	if (dropDiffs(volnaDir, active.task)) cleaned.push("диффы адвоката");
-	if (dropSnapshot(volnaDir, active.task)) cleaned.push("снимок дерева");
 
 	return {
 		ok: true,

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Usage } from "@earendil-works/pi-ai";
-import { collectChanges } from "./changes.ts";
+import { collectChanges, NO_REPO_REASON } from "./changes.ts";
 import { stamp } from "./journal.ts";
 import { advocateDiffDir, packageRoot, workspaceRoot } from "./paths.ts";
 
@@ -21,7 +21,7 @@ export type Verdict = "чисто" | "дефекты" | "нужен челове
 export interface AdvocateInput {
 	volnaDir: string;
 	task: string;
-	/** С чем сравнивать рабочее дерево. По умолчанию HEAD. */
+	/** С чем сравнивать рабочее дерево: точка начала части из журнала. По умолчанию HEAD. */
 	base?: string;
 	/** На что смотреть в первую очередь: находки прошлой итерации, конкретная ветвь, риск. */
 	focus?: string;
@@ -31,8 +31,6 @@ export interface AdvocateInput {
 	timeoutMs?: number;
 	/** Оставить расширения pi включёнными: нужно, когда провайдер модели регистрируется расширением. */
 	keepExtensions?: boolean;
-	/** Профиль проекта: из него берётся источник изменений (команда проекта, игнор). */
-	profile?: Record<string, string>;
 }
 
 export interface AdvocateResult {
@@ -40,8 +38,8 @@ export interface AdvocateResult {
 	report: string;
 	diffPath: string;
 	diffStat: string;
-	/** Откуда взялись изменения: git, svn, hg, команда проекта, снимок «Волны». */
-	changeSource: string;
+	/** Есть ли здесь git: нет - проверять было нечего, и дифф пуст не потому, что правок нет. */
+	repo: boolean;
 	changeBase: string;
 	changeNotes: string[];
 	filesChanged: number;
@@ -68,21 +66,18 @@ function emptyUsage(): Usage {
 /**
  * Изменения в файл, а не в промпт: размер диффа не должен решать, поместится ли проверка в контекст.
  * Родительская сессия дифф не читает вовсе - она за него и так заплатила при правках.
- *
- * Откуда берутся изменения, решает changes.ts: git, svn, hg, команда проекта или снимок дерева.
  */
 export async function collectDiff(
 	exec: ExecLike,
 	volnaDir: string,
 	task: string,
 	base: string,
-	profile: Record<string, string> = {},
 	signal?: AbortSignal,
-): Promise<{ path: string; stat: string; filesChanged: number; empty: boolean; kind: string; base: string; notes: string[] }> {
+): Promise<{ path: string; stat: string; filesChanged: number; empty: boolean; repo: boolean; base: string; notes: string[] }> {
 	const dir = advocateDiffDir(volnaDir, task);
 	mkdirSync(dir, { recursive: true });
 
-	const changes = await collectChanges(exec, { volnaDir, profile, base, signal });
+	const changes = await collectChanges(exec, { volnaDir, base, signal });
 	const path = join(dir, `${task}-${stamp().replace(/[^\d]/g, "")}.diff`);
 	writeFileSync(path, changes.diff || "(изменений нет)", "utf8");
 
@@ -94,7 +89,7 @@ export async function collectDiff(
 		stat,
 		filesChanged: changes.files.length,
 		empty: changes.files.length === 0 && !changes.diff.trim(),
-		kind: changes.kind,
+		repo: changes.repo,
 		base: changes.base,
 		notes: changes.notes,
 	};
@@ -194,7 +189,7 @@ export async function runAdvocate(
 	onProgress?: RunProgress,
 ): Promise<AdvocateResult> {
 	const base = input.base?.trim() || "HEAD";
-	const diff = await collectDiff(exec, input.volnaDir, input.task, base, input.profile ?? {}, signal);
+	const diff = await collectDiff(exec, input.volnaDir, input.task, base, signal);
 
 	const systemPromptPath = join(packageRoot(), "skills", "volna-flow", "agents", "advocate.md");
 	const systemPrompt = readFileSync(systemPromptPath, "utf8");
@@ -217,7 +212,7 @@ export async function runAdvocate(
 
 	const prompt = [
 		`Задача ${input.task}. Проверь сделанные изменения.`,
-		`Источник изменений: ${diff.kind}, база сравнения: ${diff.base}.`,
+		`База сравнения: ${diff.base}.`,
 		"",
 		`Изменения целиком лежат в файле: ${diff.path}`,
 		"Читай его инструментом read (файл может быть большим - читай частями), при необходимости",
@@ -240,7 +235,7 @@ export async function runAdvocate(
 		report: "",
 		diffPath: diff.path,
 		diffStat: diff.stat,
-		changeSource: diff.kind,
+		repo: diff.repo,
 		changeBase: diff.base,
 		changeNotes: diff.notes,
 		filesChanged: diff.filesChanged,
@@ -251,12 +246,20 @@ export async function runAdvocate(
 		model: input.model,
 	};
 
-	if (diff.empty) {
+	// Отказ вместо проверки: без git «Волна» не знает, что именно правилось, а разбирать проект
+	// целиком - другая работа, и подпроцесс адвоката для неё не нужен.
+	if (!diff.repo || diff.empty) {
 		result.verdict = "нужен человек";
-		result.report = [
-			`Изменений не видно: источник - ${diff.kind}, база - ${diff.base}.`,
-			diff.notes.length ? `Причина может быть здесь: ${diff.notes.join("; ")}.` : "Убедись, что правки сделаны и база указана верно.",
-		].join(" ");
+		result.report = !diff.repo
+			? [
+					NO_REPO_REASON,
+					"Заведи git (git init и первый коммит) - и адвокат заработает, либо пропусти этап с причиной:",
+					"volna_stage action=skip, stage=advocate.",
+				].join(" ")
+			: [
+					`Изменений не видно: база - ${diff.base}.`,
+					diff.notes.length ? `Причина может быть здесь: ${diff.notes.join("; ")}.` : "Убедись, что правки сделаны и база указана верно.",
+				].join(" ");
 		try {
 			unlinkSync(tmpPromptPath);
 		} catch {}

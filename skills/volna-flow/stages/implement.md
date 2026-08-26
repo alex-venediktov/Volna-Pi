@@ -7,6 +7,10 @@ working tree is free of foreign changes (checked in `plan`). **One branch per ta
 parts land in it one after another, the branch is not recreated per part. Record its name once:
 `volna_journal` field `branch` — after that the header shows it on every part.
 
+Entering the stage also records the commit this part starts from — that is the advocate's base. If the
+tool warns the tree is already dirty at that moment, those foreign edits will show up in the advocate's
+diff: commit or revert them now, not after the review.
+
 1. Follow the plan, not inspiration. Deviating is fine — record what changed and why.
 2. **Minimal edits, on subject.** No drive-by improvements, no reformatting of other people's code, no
    debug leftovers: the advocate will find them and there will be nothing to justify them with.

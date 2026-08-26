@@ -1,13 +1,13 @@
 /** Задача из нескольких частей: список в «Состоянии», закрытие части, продолжение после /clear. */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { compareWithSnapshot } from "../extensions/volna/changes.ts";
+import { collectChanges } from "../extensions/volna/changes.ts";
 import { contextHeader, enterStage, finishTask, intake, resumeTask, statusReport } from "../extensions/volna/core.ts";
 import { initVolna } from "../extensions/volna/init.ts";
 import { appendLogSection, writeStateSection } from "../extensions/volna/journal.ts";
 import { currentPart, parsePartsText, partsFromState, renderPartsText, unfinishedParts } from "../extensions/volna/parts.ts";
-import { loadActive, readState } from "../extensions/volna/state.ts";
-import { check, sandbox } from "./harness.ts";
+import { loadActive, readState, taskField } from "../extensions/volna/state.ts";
+import { check, exec, sandbox } from "./harness.ts";
 
 const LIST = [
 	"1. схема хранения - сделано (2026-08-16, 3ч)",
@@ -55,7 +55,7 @@ export async function run(): Promise<void> {
 		active.stateSection ?? "",
 	);
 
-	enterStage(dir, "implement", { reason: "часть 1" });
+	await enterStage(dir, "implement", { reason: "часть 1" });
 	appendLogSection(volnaDir, task, { stage: "implement", fields: { что: "схема", сделано: "готово", осталось: "-" } });
 
 	const early = finishTask(dir, { summary: "всё сделал", hours: "3" });
@@ -71,7 +71,7 @@ export async function run(): Promise<void> {
 	check("следующая часть названа в «Состоянии»", (active.stateSection ?? "").includes("часть 2/3"), active.stateSection ?? "");
 	check("итог части ушёл в лог", active.logText.includes("часть 1/3 закрыта"));
 
-	const resumed = resumeTask(dir);
+	const resumed = await resumeTask(dir);
 	check("продолжение вошло в spec следующей части", resumed.ok && resumed.stage === "spec", resumed.message.slice(0, 70));
 	check("в инструкции названа часть", resumed.message.includes("часть 2/3"), resumed.message.slice(0, 120));
 	check("часть переведена в работу", currentPart(partsFromState(loadActive(dir)!.stateSection))?.status === "в работе");
@@ -86,17 +86,21 @@ export async function run(): Promise<void> {
 		renderPartsText(finalParts),
 	);
 
-	await snapshotMovesWithPart();
+	await baseMovesWithPart();
 }
 
-/** Проект без системы контроля версий: закрытие части сдвигает базу адвоката, как это делает коммит. */
-async function snapshotMovesWithPart(): Promise<void> {
-	const dir = sandbox("parts-snapshot", { git: false });
-	initVolna(dir);
+/** Закрытие части сдвигает базу адвоката: следующая часть ставит свою точку начала на implement. */
+async function baseMovesWithPart(): Promise<void> {
+	const dir = sandbox("parts-base", { git: false });
+	await exec("git", ["init", "-q", dir]);
+	await exec("git", ["-C", dir, "config", "user.email", "test@example.com"]);
+	await exec("git", ["-C", dir, "config", "user.name", "test"]);
 	writeFileSync(join(dir, "app.js"), "export const step = 1;\n", "utf8");
+	initVolna(dir);
+	await exec("git", ["-C", dir, "add", "."]);
+	await exec("git", ["-C", dir, "commit", "-q", "-m", "base"]);
 	intake(dir, { assignment: "Разбить работу над шагами на части" });
 	const volnaDir = join(dir, ".volna");
-	const task = readState(volnaDir).active!;
 	const journalPath = loadActive(dir)!.journalPath;
 	writeStateSection(journalPath, {
 		goal: "шаги",
@@ -105,20 +109,33 @@ async function snapshotMovesWithPart(): Promise<void> {
 		next: "первая часть",
 	});
 
-	enterStage(dir, "implement", { reason: "часть 1" });
+	await enterStage(dir, "implement", { reason: "часть 1", exec });
+	const firstBase = taskField(loadActive(dir)!.fm, "part_base");
+	check("точка начала части записана в журнал", /^[0-9a-f]{40}$/.test(firstBase), firstBase || "(пусто)");
 	writeFileSync(join(dir, "app.js"), "export const step = 2;\n", "utf8");
-	check("правки части видны адвокату", compareWithSnapshot(volnaDir, task, {}).files.length === 1);
+	const during = await collectChanges(exec, { volnaDir, base: firstBase });
+	check("правки части видны адвокату", during.files.length === 1, JSON.stringify(during.files));
+
+	// доставка части: коммит внутри части не должен уводить проверенное из-под адвоката
+	await exec("git", ["-C", dir, "add", "."]);
+	await exec("git", ["-C", dir, "commit", "-q", "-m", "часть 1"]);
+	const afterCommit = await collectChanges(exec, { volnaDir, base: firstBase });
+	check("коммит внутри части не прячет правки от адвоката", afterCommit.files.length === 1, JSON.stringify(afterCommit.files));
+	check("против HEAD те же правки уже не видны", (await collectChanges(exec, { volnaDir })).files.length === 0);
 
 	const closed = finishTask(dir, { summary: "первая половина готова", hours: "2", part: true });
-	check("про пере-снятый снимок сказано", closed.warnings.some((warning) => warning.includes("снимок дерева пере-снят")), closed.warnings.join("; "));
-	check("после закрытия части база сдвинулась", compareWithSnapshot(volnaDir, task, {}).files.length === 0);
+	check("часть закрыта", !closed.closed && closed.ok, closed.message.slice(0, 60));
+	check("точка начала части сброшена", taskField(loadActive(dir)!.fm, "part_base") === "");
 
-	writeFileSync(join(dir, "app.js"), "export const step = 3;\n", "utf8");
-	check("правки следующей части видны отдельно", compareWithSnapshot(volnaDir, task, {}).files.length === 1);
+	await enterStage(dir, "implement", { reason: "часть 2", exec });
+	const secondBase = taskField(loadActive(dir)!.fm, "part_base");
+	check("следующая часть поставила свою точку", /^[0-9a-f]{40}$/.test(secondBase) && secondBase !== firstBase, secondBase.slice(0, 8));
+	writeFileSync(join(dir, "next.js"), "export const step = 3;\n", "utf8");
+	const second = await collectChanges(exec, { volnaDir, base: secondBase });
+	check("адвокат следующей части видит только её правки", second.files.length === 1 && second.files[0].path === "next.js", JSON.stringify(second.files));
 
 	finishTask(dir, { summary: "вторая половина готова", hours: "1", part: true });
 	const done = finishTask(dir, { summary: "шаги переведены целиком", hours: "3" });
 	check("задача закрыта целиком", done.ok && done.closed, done.message.slice(0, 60));
-	check("снимок дерева убран за задачей", !existsSync(join(volnaDir, "baseline", task)));
-	check("про уборку сказано человеку", done.message.includes("Убрано за задачей"), done.message.slice(-160));
+	check("журнал пережил закрытие", done.message.includes("Журнал остался"), done.message.slice(-120));
 }

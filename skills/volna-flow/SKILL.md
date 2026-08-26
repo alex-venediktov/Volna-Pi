@@ -75,8 +75,9 @@ its own «done when». The user decides — the split changes the order of work 
 - work abandoned mid-way is also a full close: name the remainder in `left`, unfinished parts are marked снята.
 
 Delivery sits **inside** this cycle: `deliver` runs before every part's `close` — one branch per task, one
-commit per part (more when the part needs them). Committing a part shifts the advocate's base by itself;
-where there is no version control, closing a part re-takes the tree snapshot for the same reason.
+commit per part (more when the part needs them). The advocate's base is the commit the part started on,
+written to the journal on the first `implement` iteration; closing a part clears it, so the next part sets
+its own and the advocate never sees the previous part's work.
 
 ## Autopass
 

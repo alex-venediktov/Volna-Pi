@@ -10,13 +10,13 @@ import { join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { probeEndpoint, resolveEndpoint } from "./cdp.ts";
 import type { ExecLike } from "./changes.ts";
-import { needsSnapshot, snapshotExists, snapshotTakenAt, takeSnapshot } from "./changes.ts";
+import { NO_REPO_REASON } from "./changes.ts";
 import { enterStage, intake, resumeTask, skipStage, statusReport } from "./core.ts";
 import { deliverySettings, gitState } from "./git.ts";
 import { initVolna } from "./init.ts";
 import { journalIssues, stamp } from "./journal.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
-import { loadActive, profileValue, readProfile, readState, writeState } from "./state.ts";
+import { loadActive, loadTask, profileValue, readProfile, readState, taskField, writeState } from "./state.ts";
 import { STAGES, STAGE_NAMES } from "./stages.ts";
 
 /**
@@ -61,6 +61,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => {
 			const result = initVolna(ctx.cwd);
 			ctx.ui.notify(`Волна развёрнута: ${result.volnaDir}`, "info");
+			for (const warning of result.warnings) ctx.ui.notify(`Волна: ${warning}`, "warning");
 			pi.sendMessage({ customType: "volna-init", content: result.message, display: true }, { triggerTurn: false });
 		},
 	});
@@ -70,7 +71,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 		getArgumentCompletions: (prefix) => fileCompletions(prefix),
 		handler: async (args, ctx) => {
 			const assignment = args.trim();
-			const result = assignment ? intake(ctx.cwd, { assignment }) : resumeTask(ctx.cwd);
+			const result = assignment ? intake(ctx.cwd, { assignment }) : await resumeTask(ctx.cwd, pi.exec);
 			if (!result.ok) {
 				ctx.ui.notify(result.message, "error");
 				return;
@@ -89,7 +90,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 		pi.registerCommand(`volna:${stage.name}`, {
 			description: `Волна: этап ${stage.name} (${stage.level}) - ${stage.title}`,
 			handler: async (args, ctx) => {
-				const result = enterStage(ctx.cwd, stage.name, { reason: args.trim() || undefined });
+				const result = await enterStage(ctx.cwd, stage.name, { reason: args.trim() || undefined, exec: pi.exec });
 				if (!result.ok) {
 					ctx.ui.notify(result.message, "error");
 					return;
@@ -172,34 +173,6 @@ export function registerCommands(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("volna:baseline", {
-		description: "Волна: снять снимок дерева для проекта без системы контроля версий (по нему адвокат видит правки)",
-		handler: async (_args, ctx) => {
-			const volnaDir = findVolnaDir(ctx.cwd);
-			if (!volnaDir) {
-				ctx.ui.notify("Волна здесь не развёрнута", "warning");
-				return;
-			}
-			const active = loadActive(ctx.cwd);
-			if (!active) {
-				ctx.ui.notify("Активной задачи нет: снимок привязан к задаче", "warning");
-				return;
-			}
-			const profile = readProfile(volnaDir);
-			const had = snapshotExists(volnaDir, active.task) ? snapshotTakenAt(volnaDir, active.task) : null;
-			const snapshot = takeSnapshot(volnaDir, active.task, profile);
-			const lines = [
-				`Снимок дерева снят: ${snapshot.files} файлов${snapshot.skipped ? `, из них без копии ${snapshot.skipped} (бинарные или крупные)` : ""}.`,
-				had ? `Прежний снимок от ${had.slice(0, 16).replace("T", " ")} заменён - правки, сделанные до этого момента, адвокат уже не увидит.` : "",
-				needsSnapshot(volnaDir, profile)
-					? "Система контроля версий в проекте не найдена, поэтому адвокат сравнивает именно со снимком."
-					: "В проекте есть система контроля версий - адвокат возьмёт правки из неё, снимок останется запасным.",
-			].filter(Boolean);
-			ctx.ui.notify(lines[0], "info");
-			pi.sendMessage({ customType: "volna-baseline", content: lines.join(" "), display: true }, { triggerTurn: false });
-		},
-	});
-
 	pi.registerCommand("volna:doctor", {
 		description: "Волна: проверить настройку - .volna, профиль, состояние, git, браузер, запуск адвоката",
 		handler: async (_args, ctx) => {
@@ -279,7 +252,7 @@ export async function doctorReport(cwd: string, exec: ExecLike): Promise<string>
 			: "- запуск адвоката: подпроцесс пойдёт командой pi из PATH",
 	);
 
-	const source = changeSourceLine(volnaDir, profile, active?.task);
+	const source = changeSourceLine(volnaDir, active?.task);
 	lines.push(`- изменения для адвоката: ${source}`);
 	lines.push(`- доставка: ${await deliveryLine(volnaDir, profile, exec)}`);
 
@@ -313,19 +286,13 @@ async function deliveryLine(volnaDir: string, profile: Record<string, string>, e
  * Откуда адвокат возьмёт правки. Строка есть в докторе потому, что это первое, что ломается в
  * проекте без git: адвокат приходит с пустыми руками, и понять причину иначе неоткуда.
  */
-function changeSourceLine(volnaDir: string, profile: Record<string, string>, task?: string): string {
-	const root = workspaceRoot(volnaDir);
-	const custom = profileValue(profile, "изменения");
-	if (custom) {
-		const diffCommand = profileValue(profile, "дифф");
-		return `команда проекта «${custom}»${diffCommand ? `, дифф «${diffCommand}»` : ", диффа нет - файлы уйдут целиком"}`;
+function changeSourceLine(volnaDir: string, task?: string): string {
+	if (!existsSync(join(workspaceRoot(volnaDir), ".git"))) {
+		return `! ${NO_REPO_REASON} Этап advocate откажется работать.`;
 	}
-	if (existsSync(join(root, ".git"))) return "git diff против HEAD";
-	if (existsSync(join(root, ".svn"))) return "svn status и svn diff";
-	if (existsSync(join(root, ".hg"))) return "hg status и hg diff";
-	if (!task) return "снимок дерева «Волны» (активной задачи нет, снимок снимается на implement)";
-	const takenAt = snapshotTakenAt(volnaDir, task);
-	return takenAt
-		? `снимок дерева «Волны» от ${takenAt.slice(0, 16).replace("T", " ")}`
-		: "! снимка дерева нет, а системы контроля версий не найдено - адвокату не с чем сравнивать. Снять: /volna:baseline";
+	if (!task) return "git diff против точки начала части (активной задачи нет)";
+	const base = taskField(loadTask(volnaDir, task)?.fm ?? {}, "part_base");
+	return base
+		? `git diff против ${base.slice(0, 8)} - коммита, на котором началась текущая часть`
+		: "git diff против HEAD: точка начала части ещё не записана, её ставит первая итерация implement";
 }

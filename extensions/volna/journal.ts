@@ -82,6 +82,7 @@ export function createJournal(volnaDir: string, options: CreateJournalOptions): 
 		type: options.type,
 		source: options.source,
 		branch: "",
+		part_base: "",
 		stage: "intake",
 		stages_done: [],
 		skipped: [],

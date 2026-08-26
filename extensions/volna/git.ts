@@ -61,6 +61,24 @@ export function branchFor(pattern: string, task: { id: string; type: string }): 
 		.trim();
 }
 
+/**
+ * Коммит, на котором стоит дерево сейчас. Пишется в журнал на первой итерации `implement` части и
+ * служит адвокату базой: `HEAD` перестаёт ей быть, как только внутри части сделан коммит.
+ *
+ * Пустая строка означает, что коммитов ещё нет: в свежем репозитории базы не существует.
+ */
+export async function currentCommit(exec: ExecLike, root: string, signal?: AbortSignal): Promise<string> {
+	const head = await git(exec, root, ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], signal);
+	return head.code === 0 ? head.stdout.trim() : "";
+}
+
+/** Файлы рабочего дерева с изменениями. Отдельно от gitState: одного вопроса хватает чаще, чем всех. */
+export async function dirtyFiles(exec: ExecLike, root: string, signal?: AbortSignal): Promise<string[]> {
+	const status = await git(exec, root, ["status", "--porcelain"], signal);
+	if (status.code !== 0) return [];
+	return status.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
 export async function gitState(exec: ExecLike, root: string, remote: string, signal?: AbortSignal): Promise<GitState> {
 	const empty: GitState = { repo: false, branch: "", dirty: [], hasRemote: false, upstream: null, ahead: null };
 	const inside = await git(exec, root, ["rev-parse", "--is-inside-work-tree"], signal);

@@ -3,10 +3,12 @@
 Refute your own solution, do not confirm it. The review runs in a separate read-only `pi` process with a
 clean context: it never saw the code being written and judges the changes, not the intent.
 
-1. Call `volna_advocate`. Optional: `base` (git base, default `HEAD`), `focus` — what to look at first
-   (last iteration's findings, a specific branch, a risk from the plan).
-2. The changes come from git, svn, hg, a project command or Volna's own tree snapshot — the tool reports
-   which, and what the limits of that data are. Read those notes: they say what the review could not see.
+1. Call `volna_advocate`. Optional: `base` (default: the commit this part started on, from the journal),
+   `focus` — what to look at first (last iteration's findings, a specific branch, a risk from the plan).
+2. The changes come from `git diff` against that base. The tool reports the base and what the limits of
+   that data are — read those notes: they say what the review could not see. **No git, no review**: the
+   tool says so instead of checking the whole project. Then either set git up or skip the stage with a
+   reason (`volna_stage action=skip`) — never call it passed silently.
 3. **The whole report goes into the journal.** Findings that are not in the journal do not exist a session later.
 
 One of three outcomes:

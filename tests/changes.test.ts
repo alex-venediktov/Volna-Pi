@@ -1,20 +1,19 @@
-/** Источники изменений: git, снимок дерева, команда проекта. И unified diff своими силами. */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+/** Правки для адвоката: git против точки начала части, отказ без git. И unified diff своими силами. */
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { collectChanges, compareWithSnapshot, needsSnapshot, snapshotExists, takeSnapshot } from "../extensions/volna/changes.ts";
+import { collectChanges } from "../extensions/volna/changes.ts";
 import { fileDiff } from "../extensions/volna/diff.ts";
 import { initVolna } from "../extensions/volna/init.ts";
-import { intake } from "../extensions/volna/core.ts";
 import { check, exec, sandbox } from "./harness.ts";
 
 export async function run(): Promise<void> {
 	await gitSource();
-	await snapshotSource();
-	await commandSource();
+	await withoutGit();
+	await freshRepo();
 	unifiedDiff();
 }
 
-/** git: правки, новый файл и удаление видны, база - HEAD. */
+/** git: правки, новый файл и удаление видны; база - переданный коммит, а не только HEAD. */
 async function gitSource(): Promise<void> {
 	const dir = sandbox("changes-git", { git: false });
 	await exec("git", ["init", "-q", dir]);
@@ -24,81 +23,60 @@ async function gitSource(): Promise<void> {
 	writeFileSync(join(dir, "gone.js"), "export const b = 2;\n", "utf8");
 	await exec("git", ["-C", dir, "add", "."]);
 	await exec("git", ["-C", dir, "commit", "-q", "-m", "base"]);
+	const start = (await exec("git", ["-C", dir, "rev-parse", "HEAD"])).stdout.trim();
 	writeFileSync(join(dir, "keep.js"), "export const a = 42;\n", "utf8");
 	rmSync(join(dir, "gone.js"));
 	writeFileSync(join(dir, "fresh.js"), "export const c = 3;\n", "utf8");
+	writeFileSync(join(dir, ".gitignore"), "secret.env\n", "utf8");
+	writeFileSync(join(dir, "secret.env"), "TOKEN=не-для-адвоката\n", "utf8");
 	initVolna(dir);
+	const volnaDir = join(dir, ".volna");
 
-	const changes = await collectChanges(exec, { volnaDir: join(dir, ".volna"), profile: {} });
-	check("git выбран источником", changes.kind === "git", changes.kind);
-	check("база - HEAD", changes.base === "HEAD");
+	const changes = await collectChanges(exec, { volnaDir });
+	check("git найден", changes.repo);
+	check("база - HEAD, когда другой не задано", changes.base === "HEAD", changes.base);
 	check("изменённый файл виден", changes.files.some((f) => f.path === "keep.js" && f.status === "изменён"));
 	check("удалённый файл виден", changes.files.some((f) => f.path === "gone.js" && f.status === "удалён"));
 	check("новый файл виден", changes.files.some((f) => f.path === "fresh.js" && f.status === "добавлен"));
 	check("дифф содержит правку", changes.diff.includes("export const a = 42"));
-	check("снимок при git не нужен", !needsSnapshot(join(dir, ".volna"), {}));
+	check("игнорируемый файл адвокату не показывается", !changes.diff.includes("не-для-адвоката"), "secret.env");
+	check("служебное «Волны» в дифф не попало", !changes.files.some((f) => f.path.startsWith(".volna/")));
+
+	// коммит внутри части: против HEAD правок уже нет, против точки начала части - есть
+	await exec("git", ["-C", dir, "add", "."]);
+	await exec("git", ["-C", dir, "commit", "-q", "-m", "часть"]);
+	check("против HEAD после коммита пусто", (await collectChanges(exec, { volnaDir })).files.length === 0);
+	const fromStart = await collectChanges(exec, { volnaDir, base: start });
+	check("против точки начала части правки на месте", fromStart.files.length >= 3, JSON.stringify(fromStart.files));
+	check("база названа явно", fromStart.base === start, fromStart.base);
+
+	const lost = await collectChanges(exec, { volnaDir, base: "0000000000000000000000000000000000000000" });
+	check("пропавшая база не выдумывается", lost.notes.join(" ").includes("не найдена"), lost.notes.join(" ").slice(0, 80));
 }
 
-/** Без системы контроля версий: снимок дерева даёт и список файлов, и настоящий дифф. */
-async function snapshotSource(): Promise<void> {
-	const dir = sandbox("changes-snapshot", { git: false });
-	mkdirSync(join(dir, "src"), { recursive: true });
-	mkdirSync(join(dir, "node_modules", "junk"), { recursive: true });
-	writeFileSync(join(dir, "src", "list.js"), "function render(items) {\n  return items.map(String);\n}\n", "utf8");
-	writeFileSync(join(dir, "src", "old.js"), "const removeMe = true;\n", "utf8");
-	writeFileSync(join(dir, "node_modules", "junk", "index.js"), "module.exports = 1;\n", "utf8");
+/** Без git проверять нечего, и это сказано прямо, а не пустым списком правок. */
+async function withoutGit(): Promise<void> {
+	const dir = sandbox("changes-nogit", { git: false });
+	writeFileSync(join(dir, "app.js"), "export const a = 1;\n", "utf8");
 	initVolna(dir);
-	const volnaDir = join(dir, ".volna");
-	const taken = intake(dir, { assignment: "Показать заглушку для пустого списка" });
-	const task = taken.task!;
 
-	check("без vcs снимок нужен", needsSnapshot(volnaDir, {}));
-	const snapshot = takeSnapshot(volnaDir, task, {});
-	check("снимок снят", snapshotExists(volnaDir, task) && snapshot.files >= 2, `${snapshot.files} файлов`);
-	check("node_modules в снимок не попал", snapshot.files < 10, `${snapshot.files} файлов`);
-
-	const nothing = compareWithSnapshot(volnaDir, task, {});
-	check("сразу после снимка изменений нет", nothing.files.length === 0, JSON.stringify(nothing.files));
-
-	writeFileSync(join(dir, "src", "list.js"), "function render(items) {\n  if (!items.length) return ['пусто'];\n  return items.map(String);\n}\n", "utf8");
-	writeFileSync(join(dir, "src", "empty.js"), "export const EMPTY = 'пусто';\n", "utf8");
-	rmSync(join(dir, "src", "old.js"));
-
-	const changes = await collectChanges(exec, { volnaDir, profile: {} });
-	check("источник - снимок", changes.kind === "снимок «Волны»", changes.kind);
-	check("правка видна", changes.files.some((f) => f.path === "src/list.js" && f.status === "изменён"));
-	check("новый файл виден", changes.files.some((f) => f.path === "src/empty.js" && f.status === "добавлен"));
-	check("удаление видно", changes.files.some((f) => f.path === "src/old.js" && f.status === "удалён"));
-	check("дифф построчный", changes.diff.includes("+  if (!items.length)") && changes.diff.includes("--- a/src/list.js"), changes.diff.split("\n").slice(0, 6).join(" | "));
-	check("контекст в диффе есть", changes.diff.includes("   return items.map(String);") || changes.diff.includes(" function render(items) {"));
-
-	// снимок без активной задачи и без vcs: честный отказ, а не пустой вердикт
-	const empty = compareWithSnapshot(volnaDir, "нет-такой-задачи", {});
-	check("нет снимка - сказано прямо", empty.notes.join(" ").includes("сравнивать не с чем"), empty.notes.join(" ").slice(0, 60));
+	const changes = await collectChanges(exec, { volnaDir: join(dir, ".volna") });
+	check("без git репозитория нет", !changes.repo);
+	check("правки не выдумываются", changes.files.length === 0 && changes.diff === "");
+	check("причина названа человеку", changes.notes.join(" ").includes("git-репозитория здесь нет"), changes.notes.join(" ").slice(0, 70));
 }
 
-/** Команда проекта: сюда подключаются TFVC, Perforce и всё, чего «Волна» не знает. */
-async function commandSource(): Promise<void> {
-	const dir = sandbox("changes-command", { git: false });
-	writeFileSync(join(dir, "unit.pas"), "procedure Foo;\nbegin\nend;\n", "utf8");
+/** Свежий репозиторий без коммитов: базы нет, но работа видна как новые файлы. */
+async function freshRepo(): Promise<void> {
+	const dir = sandbox("changes-fresh", { git: false });
+	await exec("git", ["init", "-q", dir]);
+	writeFileSync(join(dir, "app.js"), "export const a = 1;\n", "utf8");
 	initVolna(dir);
-	const volnaDir = join(dir, ".volna");
 
-	writeFileSync(join(dir, "list-changes.mjs"), "console.log('M unit.pas');\n", "utf8");
-	writeFileSync(join(dir, "show-diff.mjs"), "console.log('--- a/unit.pas');\n", "utf8");
-	const profile = { изменения: "node list-changes.mjs" };
-	const changes = await collectChanges(exec, { volnaDir, profile });
-	check("источник - команда проекта", changes.kind === "команда проекта", changes.kind);
-	check("файл из вывода команды разобран", changes.files.some((f) => f.path === "unit.pas" && f.status === "изменён"), JSON.stringify(changes.files));
-	check("без команды диффа содержимое вложено", changes.diff.includes("procedure Foo"), changes.diff.slice(0, 60));
-	check("сказано, что это не дифф", changes.notes.join(" ").includes("не как правки"));
-
-	const withDiff = await collectChanges(exec, {
-		volnaDir,
-		profile: { ...profile, дифф: "node show-diff.mjs" },
-	});
-	check("команда диффа используется", withDiff.diff.includes("--- a/unit.pas"));
-	check("команда отменяет снимок", !needsSnapshot(volnaDir, profile));
+	const changes = await collectChanges(exec, { volnaDir: join(dir, ".volna") });
+	check("репозиторий найден и без коммитов", changes.repo);
+	check("отсутствие коммитов названо", changes.notes.join(" ").includes("ещё нет коммитов"), changes.notes.join(" ").slice(0, 70));
+	check("файлы всё равно видны адвокату", changes.files.some((f) => f.path === "app.js" && f.status === "добавлен"));
 }
 
 /** Собственный unified diff: правка, добавление, удаление, слишком большой файл. */
