@@ -10,6 +10,7 @@ import { run as runAssignment } from "./assignment.test.ts";
 import { run as runChanges } from "./changes.test.ts";
 import { run as runDeliver } from "./deliver.test.ts";
 import { run as runDeploy } from "./deploy.test.ts";
+import { run as runDormant } from "./dormant.test.ts";
 import { run as runEvents } from "./events.test.ts";
 import { run as runFlow } from "./flow.test.ts";
 import { run as runParts } from "./parts.test.ts";
@@ -22,6 +23,7 @@ const suites: Array<[string, () => Promise<void>]> = [
 	["инструменты", runTools],
 	["события расширения", runEvents],
 	["развёртывание и поиск .volna", runDeploy],
+	["спящий пакет без .volna", runDormant],
 	["источники изменений", runChanges],
 	["доставка в git", runDeliver],
 	["дифф адвоката и визуальная проверка", runAdvocate],

@@ -3,6 +3,10 @@
  * либо кладёт в контекст инструкцию этапа и запускает ход - тем же кодом, что вызывает модель
  * через volna_stage. Одна дорога на двух входах: расхождение между «человек нажал» и «модель
  * решила» было бы источником самых непонятных ошибок.
+ *
+ * Регистрация разделена надвое. `registerSetupCommands` есть в любом каталоге: развернуть «Волну» и
+ * проверить настройку нужно ровно там, где её ещё нет. Остальное - `registerCommands` - появляется
+ * вместе с .volna: команда этапа без журнала не сделала бы ничего, кроме сообщения об ошибке.
  */
 import { type Dirent, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -55,17 +59,44 @@ function deliverStage(pi: ExtensionAPI, ctx: ExtensionCommandContext, text: stri
 	ctx.ui.notify(note, "info");
 }
 
-export function registerCommands(pi: ExtensionAPI): void {
+/**
+ * Команды, которые нужны до развёртывания. `wake` включает остальной пакет сразу после init, а
+ * перезагрузка ресурсов нужна ради скиллов и списка команд: их pi собирает не на каждый ввод.
+ */
+export function registerSetupCommands(pi: ExtensionAPI, wake: (cwd: string) => boolean): void {
 	pi.registerCommand("volna:init", {
 		description: "Волна: развернуть .volna в этом репозитории (профиль проекта, каталоги журнала, .gitignore)",
 		handler: async (_args, ctx) => {
 			const result = initVolna(ctx.cwd);
-			ctx.ui.notify(`Волна развёрнута: ${result.volnaDir}`, "info");
 			for (const warning of result.warnings) ctx.ui.notify(`Волна: ${warning}`, "warning");
 			pi.sendMessage({ customType: "volna-init", content: result.message, display: true }, { triggerTurn: false });
+			wake(ctx.cwd);
+			ctx.ui.notify(`Волна развёрнута: ${result.volnaDir}`, "info");
+			try {
+				await ctx.reload();
+			} catch {
+				pi.sendMessage(
+					{
+						customType: "volna-init",
+						content: "Скиллы «Волны» подхватятся после /reload или перезапуска pi: инструменты и команды уже доступны.",
+						display: true,
+					},
+					{ triggerTurn: false },
+				);
+			}
 		},
 	});
 
+	pi.registerCommand("volna:doctor", {
+		description: "Волна: проверить настройку - .volna, профиль, состояние, git, браузер, запуск адвоката",
+		handler: async (_args, ctx) => {
+			const text = await doctorReport(ctx.cwd, pi.exec);
+			pi.sendMessage({ customType: "volna-doctor", content: text, display: true }, { triggerTurn: false });
+		},
+	});
+}
+
+export function registerCommands(pi: ExtensionAPI): void {
 	pi.registerCommand("volna:task", {
 		description: "Волна: принять задание (текст или ссылка на файл), без аргумента - продолжить задачу со следующей части",
 		getArgumentCompletions: (prefix) => fileCompletions(prefix),
@@ -170,14 +201,6 @@ export function registerCommands(pi: ExtensionAPI): void {
 			].join("\n");
 			pi.sendMessage({ customType: "volna-checkpoint", content: text, display: false }, { triggerTurn: true });
 			ctx.ui.notify("Чек-пойнт: дописываю журнал", "info");
-		},
-	});
-
-	pi.registerCommand("volna:doctor", {
-		description: "Волна: проверить настройку - .volna, профиль, состояние, git, браузер, запуск адвоката",
-		handler: async (_args, ctx) => {
-			const text = await doctorReport(ctx.cwd, pi.exec);
-			pi.sendMessage({ customType: "volna-doctor", content: text, display: true }, { triggerTurn: false });
 		},
 	});
 

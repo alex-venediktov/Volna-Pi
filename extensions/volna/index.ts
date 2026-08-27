@@ -8,14 +8,19 @@
  * Границы: доставка есть только в git (ветка, коммит, push) и только по профилю проекта. Трекер,
  * PR, вика и база знаний оставлены на будущее: профиль их уже описывает, этапы про них знают, но
  * кода под них здесь нет.
+ *
+ * Там, где «Волна» не развёрнута, пакет спит: без каталога .volna в дереве модель не видит ни
+ * инструментов, ни скиллов, ни флоу, а событиям нечего делать. Установленный пакет иначе платил бы
+ * префиксом на каждом запросе в любом проекте и предлагал бы этапы там, где задачу никто не ведёт.
  */
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
-import { registerCommands } from "./commands.ts";
+import { registerCommands, registerSetupCommands } from "./commands.ts";
 import { contextHeader, journalWarnings } from "./core.ts";
 import { journalIssues, logSinceClose, stagesInLog } from "./journal.ts";
 import { currentPart, partsFromState, partsHeadline, unfinishedParts } from "./parts.ts";
-import { findVolnaDir, isInside, volnaPaths } from "./paths.ts";
+import { findVolnaDir, isInside, packageRoot, volnaPaths } from "./paths.ts";
 import { type ActiveTask, loadActive, profileValue, readProfile, readState, taskField, taskList } from "./state.ts";
 import { stagePosition } from "./stages.ts";
 import { registerTools } from "./tools.ts";
@@ -24,11 +29,20 @@ import { registerTools } from "./tools.ts";
 const READ_ONLY_STAGES = new Set(["intake", "analyze", "spec", "plan"]);
 
 export default function volna(pi: ExtensionAPI): void {
-	registerTools(pi);
-	registerCommands(pi);
+	const wake = waker(pi);
+	registerSetupCommands(pi, wake);
 
+	/**
+	 * Скиллы «Волны» отдаёт расширение, а не pi.skills пакета: их описания лежат в системном
+	 * промпте постоянно, и в проекте без .volna они там ни при чём.
+	 */
+	pi.on("resources_discover", async (event) => {
+		if (!findVolnaDir(event.cwd)) return;
+		return { skillPaths: [join(packageRoot(), "skills")] };
+	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		wake(ctx.cwd);
 		const active = loadActive(ctx.cwd);
 		refreshUi(ctx, active);
 		if (!active || muted(ctx)) return;
@@ -40,6 +54,7 @@ export default function volna(pi: ExtensionAPI): void {
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
+		wake(ctx.cwd);
 		const active = loadActive(ctx.cwd);
 		refreshUi(ctx, active);
 		if (!active || muted(ctx)) return;
@@ -116,6 +131,23 @@ export default function volna(pi: ExtensionAPI): void {
 		);
 		return { cancel: true };
 	});
+}
+
+/**
+ * Пробуждение пакета в каталоге, где «Волна» развёрнута: инструменты и команды флоу появляются
+ * только вместе с .volna. Регистрация одноразовая - pi разрешает её и после старта, поэтому
+ * развёрнутая посреди сессии «Волна» подхватывается со следующего события, без перезапуска.
+ */
+function waker(pi: ExtensionAPI): (cwd: string) => boolean {
+	let awake = false;
+	return (cwd: string) => {
+		if (awake) return true;
+		if (!findVolnaDir(cwd)) return false;
+		awake = true;
+		registerTools(pi);
+		registerCommands(pi);
+		return true;
+	};
 }
 
 /** Заглушено ли сопровождение: гейты это не отключает, только шапку и подсказки. */
