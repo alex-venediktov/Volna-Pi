@@ -1,7 +1,7 @@
 # Stage 11 · close (required)
 
-Record the outcome and the hours, then clear the active task. Level `required`: the user starts this stage
-and the closing itself needs their explicit yes.
+Record the outcome and the hours, then clear the active task. Level `required` means the stage is never
+skipped, not that it waits to be told: reached with nothing to ask — close, in the same turn.
 
 1. **Collect the outcome**: what changed for the user, which acceptance criteria are closed, what was
    verified (tests, advocate, browser check). The result, not a retelling of the work.
@@ -10,8 +10,10 @@ and the closing itself needs their explicit yes.
    the stamps exist to prevent.
 3. **Check the remainder**: what is out of scope, what deserves a separate task. An unrecorded remainder is
    indistinguishable from a forgotten one a session later.
-4. **Show the outcome to the user and get a yes.** This is the only irreversible action here: after it the
-   active task is cleared and the header and gates stop working for it.
+4. **State the outcome** in the turn, so it is read and not just filed. Asking for a yes to it is not
+   needed: the closing is written down, and a task closed too early is reopened by `/volna:task` with no
+   argument. Ask only when the outcome itself is in doubt — criteria left unclosed, a red test, a finding
+   of the advocate answered by a promise rather than a fix.
 5. **Call `volna_finish`** with the outcome and hours. It writes the `close` section, rewrites Status and
    clears the active task.
 6. **Tidy up**: temporary files, diagnostic scripts, debug code. Advocate diffs and screenshots are local

@@ -1,7 +1,8 @@
 # Stage 10 · deliver (expected)
 
-Hand the work over: the task branch, a commit for this part, push. Everything here is visible to other
-people, so nothing happens without the user's yes.
+Hand the work over: the task branch, a commit for this part, push. The branch and the commit are what the
+profile already authorised — make them and move on. Push is the one step other people see, and it is the
+one that waits for a yes.
 
 The profile decides what exists. `доставка: нет` or no such line — **the stage does not exist**: say so in
 one line and go to `close`, without a «skipped» record. `commit` stops after the commit; `commit+push`

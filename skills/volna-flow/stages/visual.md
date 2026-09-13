@@ -14,9 +14,10 @@ chrome-devtools`. `нет` or no web output — the stage does nothing.
    `goto`); to await an element use `wait_for`. State set up by hand in an open tab — `reuse_page: true`.
 3. **Read the report.** The automatic criterion is strict: console errors and page exceptions are red;
    4xx/5xx and failed requests are red; console warnings are not a verdict but worth a look.
-4. **Show the screenshot to the user** — the path is in the report. Matching the mockup and «does this look
-   like what was asked» is the user's verdict, not the automation's. Profile `скриншот модели: да` also
-   hands the image to the model when the model can see images.
+4. **Name the screenshot path** — it is in the report. Waiting for a verdict on it is not a stage boundary:
+   say what you see against the criteria and go on. Hand the turn back only when the answer is the user's
+   alone — a mockup to match, or a picture that contradicts the criteria in a way the code does not explain.
+   Profile `скриншот модели: да` also hands the image to the model when the model can see images.
 5. **Red result** → findings into the journal and a new `implement` iteration with that reason.
 
 This does not replace tests: one green browser scenario says nothing about the branches it did not touch.

@@ -15,7 +15,34 @@ import { packageRoot, VOLNA_DIR_NAME, volnaPaths } from "./paths.ts";
 import { stamp } from "./journal.ts";
 import { initWiki } from "./wiki-ops.ts";
 
-const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/"];
+export const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/"];
+
+/**
+ * Правила, прячущие весь .volna. Коммитятся профиль проекта и вика выводов, поэтому такое правило
+ * означает, что знание команды не уедет ни одним коммитом: git не заходит внутрь исключённого
+ * каталога, и отменить исключение изнутри нечем - точечные правила под ним мертвы.
+ */
+const BLANKET_RULES = new Set([".volna", ".volna/", "/.volna", "/.volna/", "**/.volna", "**/.volna/"]);
+
+/** Строка .gitignore, прячущая .volna целиком, либо пустая строка. */
+export function blanketIgnoreRule(gitignore: string): string {
+	if (!existsSync(gitignore)) return "";
+	try {
+		return readFileSync(gitignore, "utf8").split(/\r?\n/).map((line) => line.trim()).find((line) => BLANKET_RULES.has(line)) ?? "";
+	} catch {
+		return "";
+	}
+}
+
+/** Что сказать про правило, прячущее .volna: чего в проекте не будет и чем его заменить. */
+export function blanketIgnoreWarning(rule: string): string {
+	return (
+		`в .gitignore есть правило «${rule}»: оно прячет весь .volna, включая профиль проекта и вику выводов - ` +
+		"коммититься они не будут, и запись, сделанная этапом capture, не уедет тем же коммитом, что работа. " +
+		"Внутрь исключённого каталога git не заходит, поэтому точечные правила под ним ничего не вернут: " +
+		`замени строку на ${IGNORE_RULES.join(", ")}.`
+	);
+}
 
 export interface InitResult {
 	created: string[];
@@ -84,6 +111,11 @@ export function initVolna(cwd: string): InitResult {
 			"git-репозитория здесь нет: правки «Волна» читает только из git, поэтому этап advocate и доставка " +
 				"в этом проекте работать не будут. Журнал, этапы и остальной флоу - будут. Правила .gitignore не добавлены.",
 		);
+	} else if (blanketIgnoreRule(gitignore)) {
+		// Дописывать точечные правила под сплошным бессмысленно: они не вернут ни профиль, ни вику,
+		// а выглядели бы как сделанная работа. Правило человека «Волна» не переписывает сама.
+		warnings.push(blanketIgnoreWarning(blanketIgnoreRule(gitignore)));
+		skipped.push(gitignore);
 	} else {
 		const missing = IGNORE_RULES.filter((rule) => !ignoreHasRule(gitignore, rule));
 		if (missing.length) {

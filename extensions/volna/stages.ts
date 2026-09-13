@@ -70,7 +70,7 @@ export function stageInstructions(name: string): string {
 export function stageDuties(stage: Stage, ctx: { task: string; journalRel: string; logRel: string; iteration: number }): string {
 	const level =
 		stage.level === "required"
-			? "required: the irreversible action of this stage needs an explicit yes from the user."
+			? "required: never skipped. Of its actions only the outward-facing ones (push, clearing the active task) need an explicit yes."
 			: stage.level === "expected"
 				? "expected: done by default; skipping needs a reason in the journal (volna_stage action=skip)."
 				: "optional: by situation. Not needed - say so in one line and move on.";
@@ -85,6 +85,8 @@ export function stageDuties(stage: Stage, ctx: { task: string; journalRel: strin
 		"4. Change stage with volna_stage, never by just saying so.",
 		`5. ${level}`,
 		"",
+		"Run the stages as one chain in the same turn: close a stage, call volna_stage for the next one at once.",
+		"Do not hand the turn back for approval of what the flow already decides - only a real question stops it.",
 		"Stop and ask on a stop-criterion (ambiguous statement, missing data or access) instead of guessing.",
 		"Talk to the user in Russian; journal entries in Russian.",
 	].join("\n");

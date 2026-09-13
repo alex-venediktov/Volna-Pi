@@ -1,7 +1,7 @@
 /** Развёртывание: где «Волна» ищет свой каталог и что она заводит вне git. */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { initVolna, repoRootFor } from "../extensions/volna/init.ts";
+import { blanketIgnoreRule, initVolna, repoRootFor } from "../extensions/volna/init.ts";
 import { findVolnaDir } from "../extensions/volna/paths.ts";
 import { check, exec, sandbox } from "./harness.ts";
 
@@ -26,6 +26,35 @@ async function withoutGit(): Promise<void> {
 	const ok = initVolna(inGit);
 	check("в git правила .gitignore дописываются", existsSync(join(inGit, ".gitignore")));
 	check("в git предупреждать не о чем", ok.warnings.length === 0, ok.warnings.join("; "));
+
+	await blanketIgnore();
+}
+
+/**
+ * Правило «.volna/» прячет профиль проекта и вику выводов: git внутрь исключённого каталога не
+ * заходит, поэтому точечные правила под ним мертвы. Init говорит об этом и своих не дописывает.
+ */
+async function blanketIgnore(): Promise<void> {
+	const dir = sandbox("deploy-blanket", { git: false });
+	await exec("git", ["init", "-q", dir]);
+	writeFileSync(join(dir, ".gitignore"), "node_modules/\n.volna/\n", "utf8");
+
+	const result = initVolna(dir);
+	check("сплошное правило .volna найдено", blanketIgnoreRule(join(dir, ".gitignore")) === ".volna/");
+	check("сказано, что профиль и вика не коммитятся", result.warnings.join(" ").includes("вику выводов"), result.warnings.join(" ").slice(0, 90));
+	check(
+		"мёртвые точечные правила под сплошным не дописываются",
+		!readFileSync(join(dir, ".gitignore"), "utf8").includes(".volna/journal/"),
+	);
+
+	const check_ignore = await exec("git", ["-C", dir, "check-ignore", "-q", ".volna/wiki/SCHEMA.md"]);
+	check("вика под таким правилом и правда невидима для git", check_ignore.code === 0);
+
+	const clean = sandbox("deploy-clean-ignore", { git: false });
+	await exec("git", ["init", "-q", clean]);
+	writeFileSync(join(clean, ".gitignore"), "node_modules/\n", "utf8");
+	check("обычный .gitignore сплошным правилом не считается", blanketIgnoreRule(join(clean, ".gitignore")) === "");
+	check("и предупреждения не вызывает", initVolna(clean).warnings.length === 0);
 }
 
 /** Поиск .volna вверх: своя настройка находится, чужая - нет. */

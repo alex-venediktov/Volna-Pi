@@ -400,7 +400,7 @@ ${report.summary}` },
 			"part=true closes the current part instead: the task, the branch and the hours stay, the next part starts from spec. Content in Russian.",
 		promptSnippet: "Close the Volna task or its current part",
 		promptGuidelines: [
-			"Call volna_finish only on stage close and only after an explicit yes from the user.",
+			"Call volna_finish only on stage close. State the outcome in the turn; a separate yes to it is not required.",
 			"On a task split into parts pass part=true until the last one; closing the task itself needs the remainder named in left.",
 		],
 		parameters: Type.Object({

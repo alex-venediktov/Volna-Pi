@@ -17,7 +17,7 @@ import type { ExecLike } from "./changes.ts";
 import { NO_REPO_REASON } from "./changes.ts";
 import { enterStage, intake, resumeTask, skipStage, statusReport } from "./core.ts";
 import { deliverySettings, gitState } from "./git.ts";
-import { initVolna } from "./init.ts";
+import { blanketIgnoreRule, blanketIgnoreWarning, initVolna } from "./init.ts";
 import { journalIssues, stamp } from "./journal.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { loadActive, loadTask, profileValue, readProfile, readState, taskField, writeState } from "./state.ts";
@@ -349,6 +349,10 @@ export async function doctorReport(cwd: string, exec: ExecLike): Promise<string>
 	const source = changeSourceLine(volnaDir, active?.task);
 	lines.push(`- изменения для адвоката: ${source}`);
 	lines.push(`- вика выводов: ${wikiLine(volnaDir)}`);
+	// Правило, прячущее .volna целиком, ломает вику молча: записи заводятся, линт чист, а в коммит
+	// не уходит ничего - ни профиль проекта, ни выводы, ради которых capture стоит перед deliver.
+	const blanket = existsSync(join(root, ".git")) ? blanketIgnoreRule(join(root, ".gitignore")) : "";
+	if (blanket) lines.push(`- ! ${blanketIgnoreWarning(blanket)}`);
 	lines.push(`- доставка: ${await deliveryLine(volnaDir, profile, exec)}`);
 
 	const endpointInfo = resolveEndpoint(profileValue(profile, "endpoint браузера") || undefined);

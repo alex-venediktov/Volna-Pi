@@ -1,6 +1,7 @@
 # Stage 3 · spec (expected)
 
-Retell the assignment in your own words and get it confirmed. A misunderstanding is cheapest to fix here.
+Retell the assignment in your own words. A misunderstanding is cheapest to fix here — so state it out loud
+and move on: the statement stays in the journal, and the user objects to it just as well from `plan`.
 
 Write:
 
@@ -19,8 +20,8 @@ Write:
 stays one, with one journal and one branch. Already split: this stage is the statement and the criteria of
 the **current part**, not of the whole task.
 
-Ask with options when you must ask: the first option is the one the flow or the code implies. No
-blocking question — continue in the same turn without asking permission.
+Ask with options when you must ask: the first option is the one the flow or the code implies. Nothing to
+ask — do not ask for approval of the statement either: continue to `plan` in the same turn.
 
 Stop and ask when: criteria cannot be written because the expected behaviour is unknown; the assignment
 demands behaviour that contradicts existing correct behaviour.

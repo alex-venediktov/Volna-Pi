@@ -47,8 +47,9 @@ Each stage returns its own instructions through `volna_stage`; do not read `stag
 | 10 | `deliver` | expected | git: task branch, commit of the part, push |
 | 11 | `close` | required | outcome and hours; of a part or of the whole task |
 
-Levels: **required** needs a decision from the user; **expected** is done by default and skipped only with
-a reason in the journal; **optional** happens when there is a subject for it.
+Levels: **required** is never skipped; **expected** is done by default and skipped only with a reason in
+the journal; **optional** happens when there is a subject for it. A level is about skipping, not about
+asking: what needs an explicit yes is listed under Autopass, and the list is short.
 
 Delivery is git only and profile-driven (`доставка`, `ветка`, `база`, `удалённый`): `нет` means the stage
 does not exist. Issue trackers and PRs are still outside the flow.
@@ -102,16 +103,22 @@ than the work.
 
 ## Autopass
 
-Stages 2–10 run **as one chain in the same turn**: a stage closes, then `volna_stage` for the next one
-immediately, without waiting for a command. Write a line «stage X closed, going to Y» as you go.
+Stages 2–11 run **as one chain in the same turn**, closing the task or the part at the end: a stage closes,
+then `volna_stage` for the next one immediately, without waiting for a command. Write a line «stage X
+closed, going to Y» as you go. **Carry the chain to the end while there is nothing to ask.** A stage done
+and reported is not a checkpoint: reporting it and stopping there costs the user a turn and buys nothing —
+the journal holds the same text, and an objection arrives just as well at the end.
 
 The turn goes back to the user only when it must:
 
 - a fork the flow does not resolve;
 - a stop-criterion: ambiguous statement, missing data or access, divergence from the reference;
-- the user themself is needed: a verdict on a picture, an answer from `spec`, a look at the changes;
-- `deliver`: push is visible to other people and needs an explicit yes;
-- the `close` boundary — the user starts closing.
+- the user themself is the source of the answer: a mockup to match, a decision that changes days of work;
+- **push** — it is visible to other people and needs an explicit yes. The only mandatory yes in the flow;
+- a part closed: `/clear` and the next `/volna:task` are the user's own commands.
+
+Asking permission to continue is not on that list. Neither is a progress report, a proposed statement, a
+plan, a diff, a screenshot or an outcome: show them as you pass, keep going, and let the user interrupt.
 
 On long work a checkpoint is a step inside the chain, not a stop: rewrite Status (`volna_journal
 action=state`) at a stage boundary. Context runs out before the chain reaches the end, and what was
