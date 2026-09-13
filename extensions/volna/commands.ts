@@ -21,7 +21,9 @@ import { initVolna } from "./init.ts";
 import { journalIssues, stamp } from "./journal.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { loadActive, loadTask, profileValue, readProfile, readState, taskField, writeState } from "./state.ts";
+import { partsMap, partsRunInstructions, partsRunReadiness } from "./runner.ts";
 import { STAGES, STAGE_NAMES } from "./stages.ts";
+import { runWiki, type WikiAction, wikiRoot } from "./wiki-ops.ts";
 
 /**
  * Подсказка пути к файлу задания. Срабатывает только на то, что уже похоже на путь: подсказывать
@@ -51,6 +53,42 @@ function fileCompletions(prefix: string): Array<{ value: string; label: string }
 			return { value, label: value };
 		});
 	return items.length ? items : null;
+}
+
+/**
+ * Команда вики: операция ядра и её вывод человеку. Ход модели запускается только там, где находки
+ * надо разобрать - линт и сверка якорей; сборка указателей разбора не требует, и лишний ход стоит
+ * контекста. Без аргумента `fix` ни одна из них в файлы не пишет.
+ */
+function registerWikiCommand(pi: ExtensionAPI, name: string, action: WikiAction, description: string): void {
+	pi.registerCommand(`volna:${name}`, {
+		description,
+		handler: async (args, ctx) => {
+			const volnaDir = findVolnaDir(ctx.cwd);
+			if (!volnaDir) {
+				ctx.ui.notify("Волна здесь не развёрнута", "warning");
+				return;
+			}
+			const flags = args.trim().toLowerCase().split(/\s+/).filter(Boolean);
+			const result = runWiki(action, {
+				root: wikiRoot(volnaDir),
+				base: workspaceRoot(volnaDir),
+				fix: flags.includes("fix"),
+				all: flags.includes("all"),
+			});
+			const review = result.code !== 0 && (action === "lint" || action === "verify");
+			const text = review
+				? [
+						result.text,
+						"",
+						"Findings are proposed edits, not a verdict: go through them one by one, show the user what you are",
+						"about to change, and change nothing without their yes.",
+					].join("\n")
+				: result.text;
+			pi.sendMessage({ customType: "volna-wiki", content: text, display: true }, { triggerTurn: review });
+			ctx.ui.notify(`Вика: ${action}${result.code ? ` (код ${result.code})` : ""}`, result.code ? "warning" : "info");
+		},
+	});
 }
 
 /** Инструкция этапа кладётся в контекст без вывода человеку: ему хватает строки статуса. */
@@ -204,6 +242,39 @@ export function registerCommands(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerCommand("volna:parts-run", {
+		description: "Волна: прогнать незакрытые части подагентами, по одной, до первой развилки",
+		handler: async (args, ctx) => {
+			const readiness = partsRunReadiness(ctx.cwd);
+			if (!readiness.ok) {
+				// Причина говорится человеку и ход не запускается: условия прогона проверяет код,
+				// и уговорить его текстом в контексте нельзя
+				pi.sendMessage({ customType: "volna-parts-run", content: readiness.message, display: true }, { triggerTurn: false });
+				ctx.ui.notify("Прогон частей не запущен", "warning");
+				return;
+			}
+			const text = [
+				partsRunInstructions(),
+				"",
+				"Карта частей:",
+				partsMap(readiness.parts),
+				args.trim() ? `\nЧеловек добавил к поручению: ${args.trim()}` : "",
+			]
+				.filter(Boolean)
+				.join("\n");
+			deliverStage(pi, ctx, text, `Прогон частей: незакрытых ${readiness.left}`);
+		},
+	});
+
+	// Вика человеку: сборка указателей, структурные проверки, сверка якорей. Остальные действия
+	// (route, place, stats, pairs) идут инструментом - их зовёт этап, а не человек.
+	registerWikiCommand(pi, "wiki-index", "index",
+		"Волна: пересобрать указатели вики выводов (аргумент fix - записать, без него только план)");
+	registerWikiCommand(pi, "wiki-lint", "lint",
+		"Волна: структурные проверки вики выводов (аргумент all - весь список находок)");
+	registerWikiCommand(pi, "wiki-verify", "verify",
+		"Волна: сверка якорей вики с источниками (аргумент fix - поправить сдвинувшиеся номера строк)");
+
 	pi.registerCommand("volna:off", {
 		description: "Волна: заглушить шапку и подсказки (гейты остаются)",
 		handler: async (_args, ctx) => {
@@ -277,6 +348,7 @@ export async function doctorReport(cwd: string, exec: ExecLike): Promise<string>
 
 	const source = changeSourceLine(volnaDir, active?.task);
 	lines.push(`- изменения для адвоката: ${source}`);
+	lines.push(`- вика выводов: ${wikiLine(volnaDir)}`);
 	lines.push(`- доставка: ${await deliveryLine(volnaDir, profile, exec)}`);
 
 	const endpointInfo = resolveEndpoint(profileValue(profile, "endpoint браузера") || undefined);
@@ -303,6 +375,20 @@ async function deliveryLine(volnaDir: string, profile: Record<string, string>, e
 	const branch = `ветка ${state.branch}, шаблон «${delivery.branchPattern}»`;
 	if (delivery.mode === "commit") return `${delivery.mode}: ${branch}`;
 	return `${delivery.mode}: ${branch}, удалённый ${delivery.remote}${state.hasRemote ? "" : " - такого удалённого нет"}`;
+}
+
+/**
+ * Состояние вики: развёрнута ли и включена ли сверка якорей. Без `reference_roots` verify не
+ * проверяет ни одного локатора, а линт при этом выглядит чистым - то есть настройка ломается молча.
+ */
+function wikiLine(volnaDir: string): string {
+	const root = wikiRoot(volnaDir);
+	if (!existsSync(join(root, "SCHEMA.md"))) return `соглашений нет (${root}) - разверни /volna:init`;
+	const stats = runWiki("stats", { root, base: workspaceRoot(volnaDir) });
+	if (stats.code === 3) return `${root}: ${stats.text.split("\n")[0]}`;
+	const rooted = !stats.text.includes("якоря не сверяются");
+	const count = /записей: (\d+)/.exec(stats.text)?.[1] ?? "?";
+	return `${root}, записей ${count}, сверка якорей ${rooted ? "включена" : "выключена (нет reference_roots в SCHEMA.md)"}`;
 }
 
 /**

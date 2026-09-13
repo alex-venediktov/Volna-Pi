@@ -14,7 +14,9 @@ import { run as runDormant } from "./dormant.test.ts";
 import { run as runEvents } from "./events.test.ts";
 import { run as runFlow } from "./flow.test.ts";
 import { run as runParts } from "./parts.test.ts";
+import { run as runRunner } from "./runner.test.ts";
 import { run as runTools } from "./tools.test.ts";
+import { run as runWiki } from "./wiki.test.ts";
 
 const suites: Array<[string, () => Promise<void>]> = [
 	["флоу и журнал", runFlow],
@@ -27,6 +29,8 @@ const suites: Array<[string, () => Promise<void>]> = [
 	["источники изменений", runChanges],
 	["доставка в git", runDeliver],
 	["дифф адвоката и визуальная проверка", runAdvocate],
+	["вика выводов", runWiki],
+	["прогон частей подагентом", runRunner],
 ];
 
 for (const [name, run] of suites) {

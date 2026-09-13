@@ -47,7 +47,7 @@ cancellation must reach Status, because nobody re-reads the log.
 ## Status fields
 
 `goal`, `done`, `next` are required. `established` (settled facts), `decision` (chosen approach and why),
-`rejected` (options with reasons), `careful` (limits in force now), `wiki` (knowledge candidates).
+`rejected` (options with reasons), `careful` (limits in force now), `wiki` (knowledge candidates for stage `capture`).
 
 `parts` appears only on a task split into parts (`volna-flow`, section «Task in parts»), and then it is the
 **source of truth about what is left**: `volna_finish` reads it to decide whether it closes a part or the
@@ -76,7 +76,14 @@ would stop the work entirely.
 title. It cannot be rebuilt later — the id is in the file name and in `state.json`. Words name the subject,
 not the action: `260822-visual-console-errors` beats `260822-fix-bug`.
 
+## Knowledge outlives the task
+
+Journals are local; `.volna/wiki/` is committed and shared with the team. On stage `capture` the candidates
+collected in the `wiki` field of Status become records — one record is one claim, with a locator carrying a
+line number and a verbatim quote. Format, layout, indexes and the two routing calls: `references/wiki.md`.
+
 ## Not committed
 
 `.volna/state.json`, `.volna/journal/`, `.volna/visual/` are local:
-they are one person's work in one session. `.volna/project.md` is committed — the profile is shared.
+they are one person's work in one session. `.volna/project.md` and `.volna/wiki/` are committed — the
+profile and the knowledge are shared.

@@ -21,6 +21,8 @@ one line, offer `/volna:init`, stop. Never create a journal in someone else's re
 | review your own changes | `volna_advocate` |
 | check the web output in a browser | `volna_visual` |
 | recall what was already done on the theme | `volna_recall` |
+| route, check and rebuild the knowledge wiki | `volna_wiki` |
+| run one part of the task in a subagent | `volna_part` |
 | deliver: branch, commit, push | `volna_deliver` |
 | close the task | `volna_finish` |
 
@@ -41,8 +43,9 @@ Each stage returns its own instructions through `volna_stage`; do not read `stag
 | 6 | `advocate` | expected | adversarial review of the changes |
 | 7 | `unit-tests` | expected | tests by project convention |
 | 8 | `visual` | optional | browser, console errors, screenshot |
-| 9 | `deliver` | expected | git: task branch, commit of the part, push |
-| 10 | `close` | required | outcome and hours; of a part or of the whole task |
+| 9 | `capture` | expected | extract the experience of the task into `.volna/wiki/` |
+| 10 | `deliver` | expected | git: task branch, commit of the part, push |
+| 11 | `close` | required | outcome and hours; of a part or of the whole task |
 
 Levels: **required** needs a decision from the user; **expected** is done by default and skipped only with
 a reason in the journal; **optional** happens when there is a subject for it.
@@ -56,7 +59,7 @@ iteration, and the advocate runs again after it — one passed review does not c
 ## Task in parts
 
 Work that does not fit one run stays **one task, one journal, one branch**, split into parts: the cycle
-`spec → plan → implement ⇄ advocate → unit-tests → visual → close` runs once per part, with `/clear`
+`spec → plan → implement ⇄ advocate → unit-tests → visual → capture → close` runs once per part, with `/clear`
 between them. No separate tasks and no separate plan file appear.
 
 The list of parts lives in the `**части:**` subitem of Status — `volna_journal action=state`, field
@@ -79,9 +82,27 @@ commit per part (more when the part needs them). The advocate's base is the comm
 written to the journal on the first `implement` iteration; closing a part clears it, so the next part sets
 its own and the advocate never sees the previous part's work.
 
+## Subagents
+
+A subagent is legitimate **inside one stage**: go, read a lot, come back with a short conclusion. The signs
+that it is: it only reads, writes nothing to the journal, commits nothing, crosses no stage boundary,
+answers in a paragraph.
+
+Work split into parts is **not handed out to subagents as branches of the flow**. The limit is not price
+but construction: there is one journal (Status is rewritten, the log is append-only), `state.json` points
+at one active task and the edit gate is held by it — parallel branches race on writing. The context between
+parts is reset by `/clear`, which costs nothing.
+
+`/volna:parts-run` runs the remaining parts **one at a time**: `volna_part` gives each its own `pi` process
+with a clean context and write rights, and the run stops at the first question or blocker. The subagent is
+a worker — Volna's extensions are off for it, so stages, the journal, the advocate, the tests and closing
+the part stay with you. Preconditions are checked by the code: an active task, more than one unfinished
+part, a journal that has not fallen behind. One part left — do it yourself: a subagent for it costs more
+than the work.
+
 ## Autopass
 
-Stages 2–9 run **as one chain in the same turn**: a stage closes, then `volna_stage` for the next one
+Stages 2–10 run **as one chain in the same turn**: a stage closes, then `volna_stage` for the next one
 immediately, without waiting for a command. Write a line «stage X closed, going to Y» as you go.
 
 The turn goes back to the user only when it must:

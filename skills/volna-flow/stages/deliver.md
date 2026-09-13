@@ -1,4 +1,4 @@
-# Stage 9 · deliver (expected)
+# Stage 10 · deliver (expected)
 
 Hand the work over: the task branch, a commit for this part, push. Everything here is visible to other
 people, so nothing happens without the user's yes.

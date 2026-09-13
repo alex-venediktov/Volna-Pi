@@ -6,15 +6,14 @@
  * контекстом, своим системным промптом и правами только на чтение - он не видел, как писался
  * этот код, и судит по диффу, а не по намерению.
  */
-import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import type { Usage } from "@earendil-works/pi-ai";
 import { collectChanges, NO_REPO_REASON } from "./changes.ts";
 import { stamp } from "./journal.ts";
 import { advocateDiffDir, packageRoot, workspaceRoot } from "./paths.ts";
+import { emptyUsage, type RunProgress, runPiAgent } from "./piagent.ts";
 
 export type Verdict = "чисто" | "дефекты" | "нужен человек" | "не определён";
 
@@ -58,11 +57,6 @@ export interface ExecLike {
 	}>;
 }
 
-/** Пустая метрика: адвокат мог не сделать ни одного вызова, а поле usage обязано быть валидным. */
-function emptyUsage(): Usage {
-	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
-}
-
 /**
  * Изменения в файл, а не в промпт: размер диффа не должен решать, поместится ли проверка в контекст.
  * Родительская сессия дифф не читает вовсе - она за него и так заплатила при правках.
@@ -103,83 +97,6 @@ export function dropDiffs(volnaDir: string, task: string): boolean {
 	return true;
 }
 
-/**
- * Похож ли путь на CLI самого pi. Проверка нужна потому, что расширение может исполняться не
- * только внутри pi (SDK в чужом приложении, прогон модуля обычным node), и тогда argv[1] - чужой
- * скрипт: запустить его с флагами pi значит запустить не адвоката, а что попало.
- */
-function looksLikePiCli(scriptPath: string): boolean {
-	const norm = scriptPath.split("\\").join("/").toLowerCase();
-	if (/\/pi-coding-agent\/dist\/(bun\/)?cli\.js$/.test(norm)) return true;
-	const name = basename(norm);
-	return name === "pi" || name === "pi.js" || name === "cli.js";
-}
-
-/**
- * Как позвать pi: тем же исполняемым файлом, которым запущен родитель, иначе - модулем cli.js из
- * установленного пакета pi. Обёртки вида pi.cmd не годятся: Node на Windows отказывается запускать
- * .cmd без оболочки, а оболочка ломает длинный аргумент с переводами строк, каким и является
- * задание адвокату.
- */
-function piInvocation(args: string[]): { command: string; args: string[] } {
-	const currentScript = process.argv[1];
-	const isBunVirtual = currentScript?.startsWith("/$bunfs/root/");
-	if (currentScript && !isBunVirtual && looksLikePiCli(currentScript) && existsSync(currentScript)) {
-		return { command: process.execPath, args: [currentScript, ...args] };
-	}
-	const execName = basename(process.execPath).toLowerCase();
-	if (!/^(node|bun)(\.exe)?$/.test(execName)) return { command: process.execPath, args };
-	const cli = resolvePiCli();
-	if (cli) return { command: process.execPath, args: [cli, ...args] };
-	return { command: "pi", args };
-}
-
-/**
- * cli.js установленного pi. Обычный resolve тут не работает: pi - ESM-пакет, и его exports не
- * отдаются require, поэтому идём тремя путями - штатный import.meta.resolve, подъём по node_modules
- * от этого модуля и рабочего каталога, глобальные каталоги npm из окружения.
- */
-function resolvePiCli(): string | null {
-	const relative = join("dist", "cli.js");
-	try {
-		const resolver = (import.meta as unknown as { resolve?: (specifier: string) => string }).resolve;
-		if (resolver) {
-			const entry = fileURLToPath(resolver("@earendil-works/pi-coding-agent"));
-			const cli = join(dirname(entry), "cli.js");
-			if (existsSync(cli)) return cli;
-		}
-	} catch {}
-
-	const starts = [dirname(fileURLToPath(import.meta.url)), process.cwd()];
-	for (const start of starts) {
-		let dir = start;
-		for (let i = 0; i < 12; i++) {
-			const cli = join(dir, "node_modules", "@earendil-works", "pi-coding-agent", relative);
-			if (existsSync(cli)) return cli;
-			const parent = dirname(dir);
-			if (parent === dir) break;
-			dir = parent;
-		}
-	}
-
-	const globals = [
-		process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules") : "",
-		process.env.npm_config_prefix ? join(process.env.npm_config_prefix, "lib", "node_modules") : "",
-		process.env.npm_config_prefix ? join(process.env.npm_config_prefix, "node_modules") : "",
-		"/usr/local/lib/node_modules",
-		"/usr/lib/node_modules",
-	];
-	for (const root of globals) {
-		if (!root) continue;
-		const cli = join(root, "@earendil-works", "pi-coding-agent", relative);
-		if (existsSync(cli)) return cli;
-	}
-	return null;
-}
-
-export interface RunProgress {
-	(update: { toolCalls: number; lastText: string }): void;
-}
 
 /** Запустить адвоката и вернуть его вердикт. Промпт лежит в скилле пакета, а не в коде. */
 export async function runAdvocate(
@@ -266,114 +183,31 @@ export async function runAdvocate(
 		return result;
 	}
 
-	const texts: string[] = [];
-	let aborted = false;
-
-	const exitCode = await new Promise<number>((resolveExit) => {
-		const invocation = piInvocation(args);
-		let proc: ReturnType<typeof spawn>;
-		try {
-			proc = spawn(invocation.command, invocation.args, {
-				cwd: workspaceRoot(input.volnaDir),
-				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-		} catch (error) {
-			result.stderr += `не удалось запустить ${invocation.command}: ${String(error)}`;
-			resolveExit(1);
-			return;
-		}
-		let buffer = "";
-		const timer = input.timeoutMs
-			? setTimeout(() => {
-					aborted = true;
-					proc.kill("SIGTERM");
-				}, input.timeoutMs)
-			: null;
-
-		const handleLine = (line: string) => {
-			if (!line.trim()) return;
-			let event: any;
-			try {
-				event = JSON.parse(line);
-			} catch {
-				return;
-			}
-			if (event.type === "tool_execution_start") {
-				result.toolCalls++;
-				onProgress?.({ toolCalls: result.toolCalls, lastText: texts.at(-1) ?? "" });
-				return;
-			}
-			if (event.type !== "message_end" || !event.message) return;
-			const message = event.message;
-			if (message.role !== "assistant") return;
-			const usage = message.usage;
-			if (usage) {
-				result.usage.input += usage.input || 0;
-				result.usage.output += usage.output || 0;
-				result.usage.cacheRead += usage.cacheRead || 0;
-				result.usage.cacheWrite += usage.cacheWrite || 0;
-				result.usage.totalTokens = usage.totalTokens || result.usage.totalTokens;
-				result.usage.cost.total += usage.cost?.total || 0;
-			}
-			if (!result.model && message.model) result.model = message.model;
-			const text = (Array.isArray(message.content) ? message.content : [])
-				.filter((block: any) => block?.type === "text")
-				.map((block: any) => block.text)
-				.join("\n")
-				.trim();
-			if (text) {
-				texts.push(text);
-				onProgress?.({ toolCalls: result.toolCalls, lastText: text });
-			}
-		};
-
-		proc.stdout?.on("data", (data) => {
-			buffer += data.toString();
-			const lines = buffer.split("\n");
-			buffer = lines.pop() ?? "";
-			for (const line of lines) handleLine(line);
-		});
-		proc.stderr?.on("data", (data) => {
-			result.stderr += data.toString();
-		});
-		proc.on("close", (code) => {
-			if (buffer.trim()) handleLine(buffer);
-			if (timer) clearTimeout(timer);
-			resolveExit(code ?? 0);
-		});
-		proc.on("error", (error) => {
-			result.stderr += `\n${String(error)}`;
-			if (timer) clearTimeout(timer);
-			resolveExit(1);
-		});
-		if (signal) {
-			const kill = () => {
-				aborted = true;
-				proc.kill("SIGTERM");
-				setTimeout(() => {
-					if (!proc.killed) proc.kill("SIGKILL");
-				}, 5000);
-			};
-			if (signal.aborted) kill();
-			else signal.addEventListener("abort", kill, { once: true });
-		}
+	const run = await runPiAgent(args, {
+		cwd: workspaceRoot(input.volnaDir),
+		timeoutMs: input.timeoutMs,
+		signal,
+		onProgress,
 	});
 
 	try {
 		unlinkSync(tmpPromptPath);
 	} catch {}
 
-	result.exitCode = exitCode;
-	result.report = texts.at(-1) ?? "";
-	if (aborted) {
+	result.exitCode = run.exitCode;
+	result.stderr = run.stderr;
+	result.usage = run.usage;
+	result.toolCalls = run.toolCalls;
+	result.model = run.model ?? result.model;
+	result.report = run.texts.at(-1) ?? "";
+	if (run.aborted) {
 		result.verdict = "нужен человек";
 		result.report = `Адвокат прерван${input.timeoutMs ? " (таймаут или отмена)" : ""}. Частичный вывод:\n\n${result.report}`;
 		return result;
 	}
-	if (exitCode !== 0 && !result.report) {
+	if (run.exitCode !== 0 && !result.report) {
 		result.verdict = "нужен человек";
-		result.report = `Адвокат завершился с кодом ${exitCode}. stderr:\n${result.stderr.trim().slice(-2000) || "(пусто)"}`;
+		result.report = `Адвокат завершился с кодом ${run.exitCode}. stderr:\n${result.stderr.trim().slice(-2000) || "(пусто)"}`;
 		return result;
 	}
 	result.verdict = parseVerdict(result.report);

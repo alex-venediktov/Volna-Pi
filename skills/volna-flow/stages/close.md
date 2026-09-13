@@ -1,4 +1,4 @@
-# Stage 10 · close (required)
+# Stage 11 · close (required)
 
 Record the outcome and the hours, then clear the active task. Level `required`: the user starts this stage
 and the closing itself needs their explicit yes.

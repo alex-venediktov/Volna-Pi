@@ -1,6 +1,6 @@
 /**
  * Инструменты «Волны»: приём задания, переход по этапам, запись в журнал, адвокат, визуальная
- * проверка, поиск по накопленному.
+ * проверка, поиск по накопленному, вика выводов, прогон части подагентом.
  *
  * Флоу держится на инструментах, а не на просьбах в промпте: этап, номер итерации, метку времени
  * и формат секции ставит код. Модель решает, что написать, а не как это оформить и когда пометить
@@ -22,8 +22,11 @@ import { displayPath, loadActive, profileValue, readProfile, taskField, updateFr
 import { STAGE_NAMES } from "./stages.ts";
 import { runVisualCheck, screenshotContent } from "./visual.ts";
 import { recall } from "./recall.ts";
+import { continues, partsMap, partsRunReadiness, runPart } from "./runner.ts";
+import { runWiki, wikiRoot } from "./wiki-ops.ts";
 
 const TASK_TYPES = ["bug", "story", "task", "research"] as const;
+const WIKI_ACTIONS = ["index", "route", "place", "lint", "verify", "stats", "pairs"] as const;
 
 /**
  * Лог с диска, а не из загруженной задачи: между чтением задачи и перезаписью «Состояния» в этом
@@ -563,6 +566,134 @@ ${report.summary}` },
 			if (!volnaDir) throw new Error("«Волна» здесь не развёрнута: искать нечего.");
 			const found = recall(volnaDir, params.query, params.scope ?? "all");
 			return reply(found.text, { hits: found.hits });
+		},
+	});
+
+	pi.registerTool({
+		name: "volna_part",
+		label: "Волна: часть подагентом",
+		description:
+			"Run ONE unfinished part of the active task in a separate pi process with a clean context and write " +
+			"rights, and return its handoff report. The subagent does the work of the part only: stages, journal and " +
+			"closing the part stay with you. Anything other than «сделано» stops the run.",
+		promptSnippet: "Run one part of the task in a subagent",
+		promptGuidelines: [
+			"Rewrite Status (volna_journal action=state) before calling: the subagent reads the journal from disk, not your retelling.",
+			"Pass the «done when» of the part as criterion - without it the subagent does not know where to stop.",
+			"Report says вопрос or блокер: stop the run, put the question into action=open and hand the turn to the user.",
+			"After a part is done: re-read the journal from disk, review the work as usual (advocate, tests), then close the part.",
+		],
+		parameters: Type.Object({
+			criterion: Type.String({ description: "«Done when» of this part: the checkable condition the subagent stops at" }),
+			part: Type.Optional(Type.Number({ description: "Part number; default: the one in work, else the first not started" })),
+			focus: Type.Optional(Type.String({ description: "What to look at first: a decision from the journal, a risk, a place in the code" })),
+			model: Type.Optional(Type.String({ description: "Subagent model; default from project profile" })),
+		}),
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			const readiness = partsRunReadiness(ctx.cwd);
+			if (!readiness.ok) throw new Error(readiness.message);
+			const active = loadActive(ctx.cwd);
+			if (!active) throw new Error("Активной задачи нет: гонять нечего.");
+			const part = params.part
+				? readiness.parts.find((p) => p.number === params.part)
+				: readiness.next;
+			if (!part) throw new Error(`Части ${params.part} в списке нет.`);
+			if (part.status === "сделано" || part.status === "снята") {
+				throw new Error(`Часть ${part.number} уже закрыта (${part.status}): прогонять её заново нельзя.`);
+			}
+			if (!params.criterion.trim()) {
+				throw new Error("Не назван критерий «готово, когда»: подагент вернёт «кажется, готово».");
+			}
+
+			const profile = readProfile(active.volnaDir);
+			const model = params.model || profileValue(profile, "модель подагента") || undefined;
+			onUpdate?.({ content: [{ type: "text", text: `Часть ${part.number} запущена подагентом...` }], details: {} });
+			const result = await runPart(
+				{
+					volnaDir: active.volnaDir,
+					task: active.task,
+					part,
+					criterion: params.criterion,
+					focus: params.focus,
+					model: model === "наследовать" ? undefined : model,
+					keepExtensions: ["да", "yes"].includes(profileValue(profile, "расширения подагента").toLowerCase()),
+					timeoutMs: 30 * 60 * 1000,
+				},
+				signal,
+				(update) => {
+					onUpdate?.({
+						content: [
+							{
+								type: "text",
+								text: `Часть ${part.number}: вызовов инструментов ${update.toolCalls}\n${update.lastText.slice(-500)}`,
+							},
+						],
+						details: {},
+					});
+				},
+			);
+
+			const tail = continues(result.outcome)
+				? "\n\nДальше: перечитай журнал с диска, проверь работу части как обычно (адвокат, тесты), покажи человеку карту частей и закрой часть."
+				: "\n\nПрогон встал: вопрос или блокер значит, что независимость частей была оценкой до работы. Вопрос - в volna_journal action=open, часть остаётся в работе, ход человеку.";
+
+			const text = [
+				`Часть ${result.part} «${result.title}»: итог «${result.outcome}», вызовов инструментов ${result.toolCalls}.`,
+				result.model ? `Модель подагента: ${result.model}` : "",
+				"",
+				result.report || "(отчёт пуст)",
+				"",
+				"Карта частей на момент запуска:",
+				partsMap(readiness.parts),
+				tail,
+			]
+				.filter(Boolean)
+				.join("\n");
+
+			return {
+				content: [{ type: "text" as const, text }],
+				details: {
+					part: result.part,
+					outcome: result.outcome,
+					exitCode: result.exitCode,
+					toolCalls: result.toolCalls,
+					left: readiness.left,
+				},
+				usage: result.usage,
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "volna_wiki",
+		label: "Волна: вика",
+		description:
+			"Wiki of conclusions in .volna/wiki: index (rebuild the indexes), route (which index to open for a task), " +
+			"place (which node a new record belongs to), lint (structural checks), verify (anchors against sources), " +
+			"stats, pairs. Writes nothing without fix=true.",
+		promptSnippet: "Wiki of conclusions: route, place, index, lint, verify",
+		promptGuidelines: [
+			"On capture: action=place for the node, then action=index fix=true, then lint and verify.",
+			"Never edit INDEX files by hand - they are assembled from the records and a manual edit is overwritten.",
+			"A finding of lint is a proposed edit, not a verdict: show it to the user, do not rewrite records silently.",
+		],
+		parameters: Type.Object({
+			action: StringEnum(WIKI_ACTIONS, { description: "What to do" }),
+			query: Type.Optional(Type.String({ description: "Words of the task for route; text of the record for place" })),
+			fix: Type.Optional(Type.Boolean({ description: "Write: index writes the indexes, verify fixes shifted line numbers. Default false" })),
+			all: Type.Optional(Type.Boolean({ description: "lint: the whole list instead of the first 40" })),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const volnaDir = findVolnaDir(ctx.cwd);
+			if (!volnaDir) throw new Error("«Волна» здесь не развёрнута: вики нет.");
+			const result = runWiki(params.action, {
+				root: wikiRoot(volnaDir),
+				base: workspaceRoot(volnaDir),
+				query: params.query,
+				fix: params.fix,
+				all: params.all,
+			});
+			return reply(result.text, { action: params.action, code: result.code, fix: Boolean(params.fix) });
 		},
 	});
 }

@@ -1,6 +1,6 @@
 /**
  * Развернуть проектную часть «Волны» в текущем репозитории: .volna с профилем проекта,
- * каталоги журнала, правила .gitignore.
+ * каталоги журнала, вика выводов с соглашениями, правила .gitignore.
  *
  * Журналы и служебные файлы локальные и не коммитятся: они содержат ход работы одного человека
  * в одной сессии. Коммитится профиль проекта - он общий для команды.
@@ -13,6 +13,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname, join, resolve } from "node:path";
 import { packageRoot, VOLNA_DIR_NAME, volnaPaths } from "./paths.ts";
 import { stamp } from "./journal.ts";
+import { initWiki } from "./wiki-ops.ts";
 
 const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/"];
 
@@ -51,6 +52,12 @@ export function initVolna(cwd: string): InitResult {
 			created.push(dir);
 		}
 	}
+
+	// Вика разворачивается вместе с проектной частью и в .gitignore не попадает: журнал - ход
+	// работы одного человека, а вика - знание команды, и коммитится она тем же коммитом, что работа.
+	const wiki = initWiki(paths.wikiDir);
+	if (wiki.skipped) skipped.push(paths.wikiDir);
+	else created.push(`${paths.wikiDir} (${wiki.created.join(", ")})`);
 
 	if (existsSync(paths.project)) {
 		skipped.push(paths.project);
