@@ -102,9 +102,12 @@ export async function collectChanges(exec: ExecLike, options: CollectOptions): P
 		.map((line) => line.trim())
 		.filter((line) => line && !line.startsWith(".volna/"));
 	for (const file of newFiles) {
-		files.push({ path: normalizePath(file), status: "добавлен" });
+		const name = normalizePath(file);
+		files.push({ path: name, status: "добавлен" });
 		const content = readTextFile(join(root, file));
-		body += `\n\n${fileDiff({ path: normalizePath(file), before: null, after: content.text, note: content.note })}`;
+		// Заголовок как у git: по нему дифф режется на файлы, когда адвокат идёт порциями, и файл
+		// вне индекса не должен быть исключением из этого правила.
+		body += `\n\ndiff --git a/${name} b/${name}\n${fileDiff({ path: name, before: null, after: content.text, note: content.note })}`;
 	}
 	if (newFiles.length) notes.push(`файлов вне индекса: ${newFiles.length} - они попали в дифф целиком`);
 

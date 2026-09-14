@@ -21,7 +21,7 @@ skipped, not that it waits to be told: reached with nothing to ask — close, in
 
 **Split task.** A part is closed with `volna_finish part=true`: outcome and hours **of the part**, the part
 marked done in the list, the task left active and the branch untouched — the hours are summed at the full
-close. Last line of that turn: `/clear`, then `/volna:task` with no argument, which enters `spec` of the
+close. Last line of that turn: `/new`, then `/volna:task` with no argument, which enters `spec` of the
 next part. The last part done — close the task the usual way, without `part`, with total hours. Dropping the
 work mid-way is a full close too: the remainder goes into `left`, unfinished parts are marked снята.
 
@@ -33,4 +33,4 @@ No code was needed? `intake → analyze → close` is a legal path («no changes
 commit in that case, and the journal matters just as much: it holds the explanation.
 
 Done: outcome and hours in the journal, Status rewritten, task cleared. Start the next one from a clean
-context (`/new` or `/clear`, then `/volna:task`).
+context (`/new`, then `/volna:task`).

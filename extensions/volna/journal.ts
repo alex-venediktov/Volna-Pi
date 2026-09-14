@@ -126,7 +126,7 @@ export function createJournal(volnaDir: string, options: CreateJournalOptions): 
 }
 
 /** Порядок подпунктов секции лога. Всё, чего в списке нет, дописывается в конец как есть. */
-const LOG_FIELD_ORDER = ["что", "зачем", "почему", "как", "сделано", "осталось", "нужно", "знания", "отменяет", "задание"];
+const LOG_FIELD_ORDER = ["что", "зачем", "почему", "как", "части", "сделано", "осталось", "нужно", "знания", "отменяет", "задание"];
 
 export interface AppendLogOptions {
 	stage: string;
@@ -165,6 +165,9 @@ export function appendLogSection(
 /** Многострочное значение подпункта не ломает разметку: продолжение уходит с отступом. */
 function renderField(key: string, value: string): string[] {
 	const parts = value.trim().split(/\r?\n/);
+	// Нумерованный список (постановка частей) начинается со своей строки: подпункт с первым пунктом
+	// на строке заголовка читается как «часть 1 - это и есть всё значение подпункта».
+	if (/^\d+[.)]\s/.test(parts[0])) return [`- **${key}:**`, ...parts.map((line) => `  ${line}`)];
 	return [`- **${key}:** ${parts[0]}`, ...parts.slice(1).map((line) => `  ${line}`)];
 }
 

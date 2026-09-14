@@ -1,11 +1,16 @@
 /**
  * Задача из нескольких частей: работа не помещается в один заход, но остаётся одной задачей с одним
  * журналом и одной веткой. Части - её внутреннее деление: цикл spec → … → close проходится по разу
- * на каждую, между частями стоит /clear.
+ * на каждую, между частями стоит /new.
  *
  * Список частей живёт в подпункте «части» секции «Состояние» - там же, где всё остальное, что нужно
  * для продолжения. Отдельного файла плана не заводится: он разъехался бы с журналом на второй же
  * части. Номера `part`/`parts` во frontmatter считает код по списку, руками их не ставят.
+ *
+ * Список - только состояние остатка: название и статус. Постановка части (критерий «готово, когда»,
+ * границы, зависимость) живёт в подпункте «части» секции spec в логе и оттуда читается кодом -
+ * подагент без критерия не знает, где остановиться, а «Состояние» переписывается целиком, и
+ * подробности в нём не выжили бы.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { type Frontmatter, splitFrontmatter, stringifyFrontmatter } from "./frontmatter.ts";
@@ -64,6 +69,109 @@ export function unfinishedParts(parts: Part[]): Part[] {
 /** Тот же список с новым состоянием одной части. Номера частей - позиции в списке. */
 export function markPart(parts: Part[], number: number, status: PartStatus, note = ""): Part[] {
 	return parts.map((part) => (part.number === number ? { ...part, status, note } : part));
+}
+
+export interface PartBrief {
+	number: number;
+	title: string;
+	/** «Готово, когда»: проверяемое условие, на котором работа по части останавливается. */
+	criterion: string;
+	/** Что часть правит: файлы и каталоги. */
+	touches: string;
+	/** Чего часть не касается: граница против расползания работы. */
+	avoids: string;
+	/** От какой части зависит. «нет» значит, что часть берётся в любом порядке. */
+	depends: string;
+}
+
+/** Поля постановки части. Имена фиксированы: под другим именем их никто не найдёт. */
+const BRIEF_FIELDS: Array<[keyof PartBrief, string]> = [
+	["criterion", "готово, когда"],
+	["touches", "трогает"],
+	["avoids", "не трогает"],
+	["depends", "зависит от"],
+];
+
+const BRIEF_LINE = new RegExp(`^\\s*(${BRIEF_FIELDS.map(([, label]) => label).join("|")})\\s*[:-]\\s*(.*)$`, "i");
+
+/**
+ * Канонический вид постановки частей: то, что этап spec кладёт в лог, а прогон подагентами читает.
+ * Один текст на все сообщения об ошибке - иначе форма в промпте и форма в проверке разъедутся.
+ */
+export function partBriefForm(): string {
+	return [
+		"- **части:**",
+		"  1. <название части, как в списке «Состояния»>",
+		"     готово, когда: <проверяемое условие: команда и её результат, поведение, тест>",
+		"     трогает: <файлы и каталоги>",
+		"     не трогает: <граница>",
+		"     зависит от: <нет | часть N>",
+		"  2. ...",
+	].join("\n");
+}
+
+/**
+ * Постановка частей из лога: подпункт «части» секций spec. Позже написанное перекрывает раньше
+ * написанное - повторный заход на spec и есть способ переписать постановку части.
+ */
+export function parsePartBriefs(logText: string): PartBrief[] {
+	const found = new Map<number, PartBrief>();
+	for (const section of specSections(String(logText ?? ""))) {
+		for (const brief of briefsFromField(section)) found.set(brief.number, brief);
+	}
+	return [...found.values()].sort((a, b) => a.number - b.number);
+}
+
+/** Постановка одной части по номеру. Нет её - undefined: критерий не выдумывается. */
+export function partBrief(logText: string, number: number): PartBrief | undefined {
+	return parsePartBriefs(logText).find((brief) => brief.number === number);
+}
+
+/** Секции spec из лога, по порядку. */
+function specSections(logText: string): string[] {
+	const out: string[] = [];
+	const starts = [...logText.matchAll(/^##\s+spec\s+·\s+итерация/gm)];
+	for (let i = 0; i < starts.length; i++) {
+		const from = starts[i].index ?? 0;
+		const next = logText.slice(from + 1).search(/^##\s+/m);
+		out.push(next < 0 ? logText.slice(from) : logText.slice(from, from + 1 + next));
+	}
+	return out;
+}
+
+/** Разобрать подпункт «части» одной секции: строка с номером открывает часть, поля идут под ней. */
+function briefsFromField(section: string): PartBrief[] {
+	const lines = section.split(/\r?\n/);
+	const start = lines.findIndex((line) => /^\s*-\s+\*\*части:\*\*/.test(line));
+	if (start < 0) return [];
+	const out: PartBrief[] = [];
+	let current: PartBrief | undefined;
+	for (let i = start; i < lines.length; i++) {
+		const line = i === start ? lines[i].replace(/^\s*-\s+\*\*части:\*\*\s*/, "") : lines[i];
+		// Следующий подпункт лога закрывает список: дальше пишут уже не про части.
+		if (i > start && /^\s*-\s+\*\*[^*]+:\*\*/.test(lines[i])) break;
+		const head = PART_LINE.exec(line);
+		if (head) {
+			const rest = head[2].trim();
+			const inline = BRIEF_LINE.exec(rest.replace(/^.*?[-—–]\s*(?=готово, когда)/i, ""));
+			current = {
+				number: out.length + 1,
+				title: rest.replace(/\s*[-—–]\s*готово, когда\s*[:-].*$/i, "").trim(),
+				criterion: inline ? inline[2].trim() : "",
+				touches: "",
+				avoids: "",
+				depends: "",
+			};
+			out.push(current);
+			continue;
+		}
+		if (!current) continue;
+		const field = BRIEF_LINE.exec(line);
+		if (!field) continue;
+		const key = BRIEF_FIELDS.find(([, label]) => label === field[1].trim().toLowerCase())?.[0];
+		if (key && key !== "number" && key !== "title") current[key] = field[2].trim();
+	}
+	return out.filter((brief) => brief.title);
 }
 
 /** Строка для шапки и футера: «часть 2/3 приём шага по форме». Частей нет - пустая строка. */

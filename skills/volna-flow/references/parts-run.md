@@ -15,9 +15,23 @@ processes writing them would race.
 1. **Checkpoint first.** Rewrite Status (`volna_journal action=state`) so the journal matches this moment.
    The subagent reads the journal **from disk**, not your retelling — a stale Status it will take for the
    truth. `volna_part` refuses to start on a journal that has fallen behind.
-2. **`volna_part`** with the number of the part and its **«done when»** as `criterion`. No criterion means
-   the subagent does not know where to stop and comes back with «seems done». Not written down anywhere —
-   stop and ask the user to name it, do not invent it.
+2. **`volna_part`** with the number of the part. Its **«done when»**, and the boundaries around it, come
+   from the statement of the part in the journal — the `части` field of the `spec` entry in the log:
+
+   ```
+   - **части:**
+     1. <name of the part, the same as in the list>
+        готово, когда: <checkable condition: a command and its result, a behaviour, a test>
+        трогает: <files and directories>
+        не трогает: <the boundary>
+        зависит от: <нет | часть N>
+   ```
+
+   No `готово, когда` for a part means the subagent does not know where to stop and comes back with «seems
+   done» — `volna_part` refuses, and the command says which parts are missing it. Take the condition from
+   the statement, or ask the user; then write it into the log as a `spec` entry in that form. Do not invent
+   it, and do not pass it as `criterion` instead of writing it down: the next session reads the journal, not
+   this turn.
 3. **Take the report.** Five fields: статус, что сделано, свидетельства, следующий шаг, блокер. A field is
    missing — ask the subagent's report for it in your summary, do not fill it in from imagination.
 4. **Re-read the journal from disk** and check the work the usual way: `volna_advocate` over the changes,

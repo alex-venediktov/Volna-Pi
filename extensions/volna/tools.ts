@@ -16,7 +16,7 @@ import { branchFor, commitChanges, deliverySettings, ensureBranch, gitState, pus
 import { enterStage, finishTask, intake, resumeTask, skipStage, statusReport } from "./core.ts";
 import { initVolna } from "./init.ts";
 import { appendLogSection, journalIssues, stamp, writeStateSection } from "./journal.ts";
-import { currentPart, partsFromState } from "./parts.ts";
+import { currentPart, partBriefForm, partsFromState } from "./parts.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { displayPath, loadActive, profileValue, readProfile, taskField, updateFrontmatter } from "./state.ts";
 import { STAGE_NAMES } from "./stages.ts";
@@ -73,7 +73,7 @@ export function registerTools(pi: ExtensionAPI): void {
 		promptSnippet: "Start a Volna task (creates the task journal)",
 		promptGuidelines: [
 			"Call volna_task when the user states a task to be tracked by Volna.",
-			"After /clear on a task split into parts, call it with no assignment: it picks up the next part.",
+			"After /new on a task split into parts, call it with no assignment: it picks up the next part.",
 		],
 		parameters: Type.Object({
 			assignment: Type.Optional(
@@ -232,22 +232,31 @@ export function registerTools(pi: ExtensionAPI): void {
 		label: "Волна: адвокат",
 		description:
 			"Adversarial review: a separate read-only pi process checks the current changes against the acceptance " +
-			"criteria in the journal and tries to refute them. Returns findings and a verdict.",
-		promptSnippet: "Review your own changes in a separate adversarial process",
+			"criteria in the journal and tries to refute them. Returns findings and a verdict. One call reviews ONE " +
+			"batch of the diff (a few files); the result of every batch is kept, so call it again until nothing is left.",
+		promptSnippet: "Review your own changes in a separate adversarial process, batch by batch",
 		promptGuidelines: [
 			"Call volna_advocate after every implement iteration: your own code cannot be judged honestly in your own context.",
-			"Verdict «дефекты» means open a new implement iteration via volna_stage with the findings as reason.",
+			"The answer says how many files are left: «чисто» with files left means call it again for the next batch, in the same turn.",
+			"Verdict «дефекты» means open a new implement iteration via volna_stage with the findings as reason - the rest of the batches waits.",
+			"A run that timed out costs one batch, not the whole review: call again, and lower batch_kb if it times out twice.",
 		],
 		parameters: Type.Object({
 			base: Type.Optional(Type.String({ description: "Comparison base; default: the commit this part started on, from the journal" })),
 			focus: Type.Optional(Type.String({ description: "What to look at first: last findings, a branch, a risk" })),
 			model: Type.Optional(Type.String({ description: "Reviewer model; default from project profile" })),
+			batch_kb: Type.Optional(
+				Type.Number({ description: "Batch size in KB of diff per run; default from project profile, else 48" }),
+			),
+			minutes: Type.Optional(Type.Number({ description: "Timeout for this run in minutes; default from project profile, else 10" })),
 		}),
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const active = loadActive(ctx.cwd);
 			if (!active) throw new Error("Активной задачи нет: адвокату нечего проверять. Прими задание через volna_task.");
 			const profile = readProfile(active.volnaDir);
 			const model = params.model || profileValue(profile, "модель адвоката") || undefined;
+			const batchKb = params.batch_kb || Number.parseFloat(profileValue(profile, "порция адвоката")) || 0;
+			const minutes = params.minutes || Number.parseFloat(profileValue(profile, "таймаут адвоката")) || 10;
 
 			const journalContext = [
 				active.stateSection ? `«Состояние» задачи:\n${active.stateSection}` : "",
@@ -268,7 +277,8 @@ export function registerTools(pi: ExtensionAPI): void {
 					journalContext,
 					model: model === "наследовать" ? undefined : model,
 					keepExtensions: ["да", "yes"].includes(profileValue(profile, "расширения адвоката").toLowerCase()),
-					timeoutMs: 15 * 60 * 1000,
+					batchBytes: batchKb > 0 ? Math.round(Math.max(4, batchKb) * 1024) : undefined,
+					timeoutMs: Math.round(minutes * 60 * 1000),
 				},
 				signal,
 				(update) => {
@@ -284,19 +294,26 @@ export function registerTools(pi: ExtensionAPI): void {
 				},
 			);
 
+			// Находки первой же порции обрывают проверку: чинить надо сразу, а остаток порций
+			// дождётся - его файлы никуда не денутся, они помечены непроверенными.
 			const tail =
 				result.verdict === "дефекты"
-					? "\n\nДальше: открой новую итерацию implement (volna_stage, stage=implement, reason - находки адвоката) и запиши находки в журнал."
-					: result.verdict === "чисто"
-						? "\n\nДальше: unit-tests (volna_stage, stage=unit-tests). Находки и «расхождений не найдено» всё равно идут в журнал."
-						: "\n\nВердикт не однозначен: разберись с отчётом, при необходимости спроси человека.";
+					? "\n\nДальше: открой новую итерацию implement (volna_stage, stage=implement, reason - находки адвоката) и запиши находки в журнал. Непроверенные порции дождутся: адвокат вернётся к ним после правки."
+					: result.pending
+						? `\n\nПроверка не закончена: файлов осталось ${result.filesLeft}. Вызови volna_advocate ещё раз в этом же ходе - он возьмёт следующую порцию. Находки этой порции всё равно идут в журнал.`
+						: result.verdict === "чисто"
+							? "\n\nДальше: unit-tests (volna_stage, stage=unit-tests). Находки и «расхождений не найдено» всё равно идут в журнал."
+							: "\n\nВердикт не однозначен: разберись с отчётом, при необходимости спроси человека.";
 
 			const text = [
-				`Адвокат: вердикт «${result.verdict}», изменённых файлов ${result.filesChanged}, вызовов инструментов ${result.toolCalls}.`,
+				`Адвокат: порция ${result.batch}/${result.batches}, вердикт «${result.verdict}», вызовов инструментов ${result.toolCalls}.`,
+				`Файлы порции: ${result.batchFiles.join(", ") || "(пусто)"}`,
+				`Проверено файлов ${result.filesDone} из ${result.filesTotal}, осталось ${result.filesLeft}. Вердикт по проверенному: ${result.overall}.`,
 				result.repo ? `База сравнения: ${result.changeBase}.` : "",
 				result.changeNotes.length ? `Про полноту данных: ${result.changeNotes.join("; ")}` : "",
 				result.model ? `Модель адвоката: ${result.model}` : "",
-				`Дифф: ${result.diffPath}`,
+				`Дифф порции: ${result.batchPath}`,
+				result.runs ? `\nПрошлые порции:\n${result.runs}` : "",
 				"",
 				result.report || "(отчёт пуст)",
 				tail,
@@ -308,7 +325,13 @@ export function registerTools(pi: ExtensionAPI): void {
 				content: [{ type: "text" as const, text }],
 				details: {
 					verdict: result.verdict,
-					diffPath: result.diffPath,
+					overall: result.overall,
+					batch: result.batch,
+					batches: result.batches,
+					pending: result.pending,
+					filesDone: result.filesDone,
+					filesLeft: result.filesLeft,
+					diffPath: result.batchPath,
 					repo: result.repo,
 					changeBase: result.changeBase,
 					filesChanged: result.filesChanged,
@@ -579,12 +602,17 @@ ${report.summary}` },
 		promptSnippet: "Run one part of the task in a subagent",
 		promptGuidelines: [
 			"Rewrite Status (volna_journal action=state) before calling: the subagent reads the journal from disk, not your retelling.",
-			"Pass the «done when» of the part as criterion - without it the subagent does not know where to stop.",
+			"The «done when» of the part comes from the «части» field of the spec entry in the log; pass criterion only to override it.",
 			"Report says вопрос or блокер: stop the run, put the question into action=open and hand the turn to the user.",
 			"After a part is done: re-read the journal from disk, review the work as usual (advocate, tests), then close the part.",
 		],
 		parameters: Type.Object({
-			criterion: Type.String({ description: "«Done when» of this part: the checkable condition the subagent stops at" }),
+			criterion: Type.Optional(
+				Type.String({
+					description:
+						"«Done when» of this part: the checkable condition the subagent stops at. Default: the one written for this part in the spec entry of the log",
+				}),
+			),
 			part: Type.Optional(Type.Number({ description: "Part number; default: the one in work, else the first not started" })),
 			focus: Type.Optional(Type.String({ description: "What to look at first: a decision from the journal, a risk, a place in the code" })),
 			model: Type.Optional(Type.String({ description: "Subagent model; default from project profile" })),
@@ -601,8 +629,19 @@ ${report.summary}` },
 			if (part.status === "сделано" || part.status === "снята") {
 				throw new Error(`Часть ${part.number} уже закрыта (${part.status}): прогонять её заново нельзя.`);
 			}
-			if (!params.criterion.trim()) {
-				throw new Error("Не назван критерий «готово, когда»: подагент вернёт «кажется, готово».");
+			// Критерий берётся из постановки части в логе, а не из памяти оркестратора: подагент
+			// работает по журналу, и «готово, когда» должно быть написано там же, где всё остальное.
+			const brief = readiness.briefs.find((item) => item.number === part.number);
+			const criterion = (params.criterion || brief?.criterion || "").trim();
+			if (!criterion) {
+				throw new Error(
+					[
+						`У части ${part.number} («${part.title}») нет критерия «готово, когда»: подагент вернёт «кажется, готово».`,
+						"Возьми его из постановки или спроси человека, а потом допиши в лог секцией spec",
+						"(volna_journal action=log, stage=spec), подпункт «части» в этом виде:",
+						partBriefForm(),
+					].join("\n"),
+				);
 			}
 
 			const profile = readProfile(active.volnaDir);
@@ -613,7 +652,8 @@ ${report.summary}` },
 					volnaDir: active.volnaDir,
 					task: active.task,
 					part,
-					criterion: params.criterion,
+					criterion,
+					brief,
 					focus: params.focus,
 					model: model === "наследовать" ? undefined : model,
 					keepExtensions: ["да", "yes"].includes(profileValue(profile, "расширения подагента").toLowerCase()),

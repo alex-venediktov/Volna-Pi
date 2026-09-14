@@ -88,6 +88,17 @@ export async function run(): Promise<void> {
 		branch: "feature/csv-export",
 	});
 	check("ветка записана инструментом", String(loadActive(dir)!.fm.branch) === "feature/csv-export", String(loadActive(dir)!.fm.branch));
+
+	// Часть без «готово, когда» подагенту не отдаётся: критерий живёт в логе, а не в памяти
+	// оркестратора, и отказ обязан показать, что именно дописать
+	let partRefusal = "";
+	try {
+		await call("volna_part", { part: 2 });
+	} catch (error: any) {
+		partRefusal = String(error?.message ?? error);
+	}
+	check("часть без критерия подагенту не отдаётся", partRefusal.includes("готово, когда"), partRefusal.split("\n")[0]);
+	check("в отказе показана форма постановки", partRefusal.includes("трогает:"), partRefusal.split("\n").slice(-4).join(" | "));
 	const partClosed = await call("volna_finish", { summary: "строки выгружаются", hours: "1", part: true });
 	check("инструмент закрывает часть, не задачу", toolText(partClosed).includes("Часть 1/2 закрыта") && readState(volnaDir).active === task, toolText(partClosed).slice(0, 70));
 	check("продолжение без задания входит в следующую часть", toolText(await call("volna_task", {})).includes("часть 2/2"), toolText(await call("volna_task", {})).slice(0, 80));

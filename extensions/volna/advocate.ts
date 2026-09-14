@@ -5,11 +5,27 @@
  * та же история, те же слепые зоны. Поэтому проверка идёт в отдельном процессе с чистым
  * контекстом, своим системным промптом и правами только на чтение - он не видел, как писался
  * этот код, и судит по диффу, а не по намерению.
+ *
+ * Проверка идёт порциями: один прогон разбирает столько файлов диффа, сколько успевает до
+ * таймаута, его вердикт и отчёт остаются в журнале проверок, и следующий прогон берёт следующую
+ * порцию (`advocate-batches.ts`). Один длинный прогон на весь дифф этого не даёт: снятый по
+ * таймауту процесс уносит с собой всю работу.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Usage } from "@earendil-works/pi-ai";
+import {
+	type Batch,
+	DEFAULT_BATCH_BYTES,
+	type Ledger,
+	ledgerSummary,
+	planBatch,
+	readLedger,
+	recordRun,
+	splitDiff,
+	worstVerdict,
+} from "./advocate-batches.ts";
 import { collectChanges, NO_REPO_REASON } from "./changes.ts";
 import { stamp } from "./journal.ts";
 import { advocateDiffDir, packageRoot, workspaceRoot } from "./paths.ts";
@@ -28,6 +44,8 @@ export interface AdvocateInput {
 	journalContext?: string;
 	model?: string;
 	timeoutMs?: number;
+	/** Размер порции в байтах диффа: сколько уходит в один прогон. */
+	batchBytes?: number;
 	/** Оставить расширения pi включёнными: нужно, когда провайдер модели регистрируется расширением. */
 	keepExtensions?: boolean;
 }
@@ -47,6 +65,24 @@ export interface AdvocateResult {
 	usage: Usage;
 	toolCalls: number;
 	model?: string;
+	/** Номер порции этого прогона и сколько порций выходит всего. */
+	batch: number;
+	batches: number;
+	/** Файлы, попавшие в эту порцию. */
+	batchFiles: string[];
+	/** Файлов проверено прошлыми прогонами и осталось после этого. */
+	filesDone: number;
+	filesLeft: number;
+	/** Файлов в диффе всего: кусков диффа, а не строк `git diff --name-status`. */
+	filesTotal: number;
+	/** Проверка не закончена: остались файлы, которых ни один прогон не видел. */
+	pending: boolean;
+	/** Файл с диффом этой порции: его и читает адвокат. */
+	batchPath: string;
+	/** Итоги прошлых прогонов строками: что уже проверено и с каким вердиктом. */
+	runs: string;
+	/** Вердикт всей проверки по журналу: худшее из того, что нашли порции. */
+	overall: Verdict;
 }
 
 export interface ExecLike {
@@ -67,7 +103,16 @@ export async function collectDiff(
 	task: string,
 	base: string,
 	signal?: AbortSignal,
-): Promise<{ path: string; stat: string; filesChanged: number; empty: boolean; repo: boolean; base: string; notes: string[] }> {
+): Promise<{
+	path: string;
+	text: string;
+	stat: string;
+	filesChanged: number;
+	empty: boolean;
+	repo: boolean;
+	base: string;
+	notes: string[];
+}> {
 	const dir = advocateDiffDir(volnaDir, task);
 	mkdirSync(dir, { recursive: true });
 
@@ -80,6 +125,7 @@ export async function collectDiff(
 		: "";
 	return {
 		path,
+		text: changes.diff,
 		stat,
 		filesChanged: changes.files.length,
 		empty: changes.files.length === 0 && !changes.diff.trim(),
@@ -98,7 +144,14 @@ export function dropDiffs(volnaDir: string, task: string): boolean {
 }
 
 
-/** Запустить адвоката и вернуть его вердикт. Промпт лежит в скилле пакета, а не в коде. */
+/**
+ * Запустить адвоката на одну порцию изменений и вернуть её вердикт. Промпт лежит в скилле пакета,
+ * а не в коде.
+ *
+ * Один вызов - одна порция: файлы, которые прошлые прогоны уже разобрали, в дифф этого прогона не
+ * попадают, а его итог ложится в журнал проверок. Поэтому снятый по таймауту прогон стоит одной
+ * порции, а не всей проверки, и повторный вызов продолжает с того же места.
+ */
 export async function runAdvocate(
 	exec: ExecLike,
 	input: AdvocateInput,
@@ -107,6 +160,9 @@ export async function runAdvocate(
 ): Promise<AdvocateResult> {
 	const base = input.base?.trim() || "HEAD";
 	const diff = await collectDiff(exec, input.volnaDir, input.task, base, signal);
+	const dir = advocateDiffDir(input.volnaDir, input.task);
+	const ledger: Ledger = readLedger(dir, diff.base);
+	const batch: Batch = planBatch(splitDiff(diff.text), ledger, input.batchBytes || DEFAULT_BATCH_BYTES);
 
 	const systemPromptPath = join(packageRoot(), "skills", "volna-flow", "agents", "advocate.md");
 	const systemPrompt = readFileSync(systemPromptPath, "utf8");
@@ -127,17 +183,29 @@ export async function runAdvocate(
 	);
 	if (input.model) args.push("--model", input.model);
 
+	const batchPath = join(dir, `batch-${batch.number}.diff`);
+	const reviewedBefore = ledger.reviewed.map((entry) => entry.file);
+
 	const prompt = [
 		`Задача ${input.task}. Проверь сделанные изменения.`,
 		`База сравнения: ${diff.base}.`,
+		batch.total > 1 ? `Это порция ${batch.number} из ${batch.total}: дифф разрезан по файлам.` : "",
 		"",
-		`Изменения целиком лежат в файле: ${diff.path}`,
+		`Изменения этой порции лежат в файле: ${batchPath}`,
 		"Читай его инструментом read (файл может быть большим - читай частями), при необходимости",
 		"смотри исходники в рабочем дереве.",
+		"",
+		"Файлы этой порции:",
+		batch.sections.map((item) => `- ${item.path}`).join("\n"),
+		reviewedBefore.length
+			? `\nУже разобрано прошлыми порциями (в этот дифф не входит, заново не проси): ${reviewedBefore.join(", ")}`
+			: "",
 		diff.notes.length ? `\nЧто знать про полноту этих данных:\n- ${diff.notes.join("\n- ")}` : "",
 		"",
-		"Изменённые файлы:",
+		"Все изменённые файлы задачи (для понимания, что рядом):",
 		diff.stat || "(пусто)",
+		"",
+		"Вердикт ставь по этой порции: соседние файлы проверяют другие прогоны.",
 		"",
 		input.focus ? `На что смотреть в первую очередь: ${input.focus}` : "",
 		"",
@@ -161,6 +229,16 @@ export async function runAdvocate(
 		usage: emptyUsage(),
 		toolCalls: 0,
 		model: input.model,
+		batch: batch.number,
+		batches: Math.max(batch.total, batch.number),
+		batchFiles: batch.sections.map((item) => item.path),
+		filesDone: batch.filesDone,
+		filesLeft: batch.filesLeft,
+		filesTotal: batch.filesTotal,
+		pending: batch.filesLeft > 0,
+		batchPath,
+		runs: ledgerSummary(ledger),
+		overall: worstVerdict(ledger),
 	};
 
 	// Отказ вместо проверки: без git «Волна» не знает, что именно правилось, а разбирать проект
@@ -183,6 +261,32 @@ export async function runAdvocate(
 		return result;
 	}
 
+	// Очередь пуста: каждый кусок диффа уже разобран какой-то порцией. Проверять заново нечего,
+	// и вердикт всей проверки собирается по журналу прогонов.
+	if (!batch.sections.length) {
+		result.verdict = worstVerdict(ledger);
+		result.overall = result.verdict;
+		// Прогона не было: номер порции - последний состоявшийся, иначе ответ обещает работу,
+		// которой никто не делал.
+		result.batch = ledger.runs.length;
+		result.batches = ledger.runs.length;
+		result.report = [
+			`Все изменения уже разобраны: порций ${ledger.runs.length}, файлов ${batch.filesTotal}.`,
+			`Вердикт всей проверки: ${result.verdict}.`,
+			"",
+			ledgerSummary(ledger),
+			"",
+			`Отчёты порций лежат рядом с диффом: ${dir}`,
+			"Правка после находок меняет дифф файла, и такой файл вернётся в очередь сам.",
+		].join("\n");
+		try {
+			unlinkSync(tmpPromptPath);
+		} catch {}
+		return result;
+	}
+
+	writeFileSync(batchPath, batch.sections.map((item) => item.text).join("\n\n"), "utf8");
+
 	const run = await runPiAgent(args, {
 		cwd: workspaceRoot(input.volnaDir),
 		timeoutMs: input.timeoutMs,
@@ -202,15 +306,40 @@ export async function runAdvocate(
 	result.report = run.texts.at(-1) ?? "";
 	if (run.aborted) {
 		result.verdict = "нужен человек";
-		result.report = `Адвокат прерван${input.timeoutMs ? " (таймаут или отмена)" : ""}. Частичный вывод:\n\n${result.report}`;
+		result.report = [
+			`Адвокат прерван${input.timeoutMs ? " (таймаут или отмена)" : ""} на порции ${batch.number}.`,
+			`Порция не зачтена: её файлы (${result.batchFiles.join(", ")}) придут в следующий прогон.`,
+			"Повторный таймаут значит, что порция велика: уменьши её (batch_kb) и вызови снова.",
+			"",
+			`Частичный вывод:\n\n${result.report}`,
+		].join("\n");
+		recordRun({ dir, ledger, batch, verdict: "не определён", report: result.report, at: stamp(), base: diff.base, aborted: true });
+		result.runs = ledgerSummary(ledger);
+		result.overall = worstVerdict(ledger);
+		result.filesLeft += batch.sections.length;
+		result.pending = true;
 		return result;
 	}
 	if (run.exitCode !== 0 && !result.report) {
 		result.verdict = "нужен человек";
 		result.report = `Адвокат завершился с кодом ${run.exitCode}. stderr:\n${result.stderr.trim().slice(-2000) || "(пусто)"}`;
+		recordRun({ dir, ledger, batch, verdict: "не определён", report: result.report, at: stamp(), base: diff.base, aborted: true });
+		result.runs = ledgerSummary(ledger);
+		result.overall = worstVerdict(ledger);
+		result.filesLeft += batch.sections.length;
+		result.pending = true;
 		return result;
 	}
 	result.verdict = parseVerdict(result.report);
+	recordRun({ dir, ledger, batch, verdict: result.verdict, report: result.report, at: stamp(), base: diff.base });
+	result.runs = ledgerSummary(ledger);
+	result.overall = worstVerdict(ledger);
+	// Вердикт «не определён» порцию не зачитывает: её файлы вернутся в следующий прогон, значит
+	// остаток не меньше, чем был.
+	if (result.verdict === "не определён") {
+		result.filesLeft += batch.sections.length;
+		result.pending = true;
+	}
 	return result;
 }
 

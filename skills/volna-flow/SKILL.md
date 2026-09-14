@@ -57,10 +57,14 @@ does not exist. Issue trackers and PRs are still outside the flow.
 `implement` ⇄ `advocate` cycles until the verdict is clean. Any further code change is a new `implement`
 iteration, and the advocate runs again after it — one passed review does not cover code changed later.
 
+The advocate works in **batches**: one `volna_advocate` call reviews a few files of the diff, its verdict
+and report are kept on disk, and the next call takes the next batch. Files left means call it again in the
+same turn. A run killed by a timeout costs one batch, not the review.
+
 ## Task in parts
 
 Work that does not fit one run stays **one task, one journal, one branch**, split into parts: the cycle
-`spec → plan → implement ⇄ advocate → unit-tests → visual → capture → close` runs once per part, with `/clear`
+`spec → plan → implement ⇄ advocate → unit-tests → visual → capture → close` runs once per part, with `/new`
 between them. No separate tasks and no separate plan file appear.
 
 The list of parts lives in the `**части:**` subitem of Status — `volna_journal action=state`, field
@@ -68,12 +72,17 @@ The list of parts lives in the `**части:**` subitem of Status — `volna_jo
 `part`/`parts` in the frontmatter are counted from that list by the code, and the list is carried over
 untouched when `action=state` omits it: it is the source of truth about what is left.
 
+The **statement** of each part lives elsewhere: the `части` field of the `spec` entry in the log, one block
+per part with `готово, когда`, `трогает`, `не трогает`, `зависит от` (the form is in `stages/spec.md`). The
+list carries state and is rewritten; the statement is written once and read by the code — `volna_part`
+takes «done when» from there, and without it it refuses to hand the part to a subagent.
+
 Propose the split **with options** on `spec` when `analyze` showed several independent results, each with
 its own «done when». The user decides — the split changes the order of work for days ahead.
 
 - every stage of the cycle is about the **current part only**;
 - part closed: `volna_finish part=true` — outcome and hours of the part into the journal, the part marked
-  done, the task **stays active**, the branch stays, the hours keep accumulating. Then `/clear`, then
+  done, the task **stays active**, the branch stays, the hours keep accumulating. Then `/new`, then
   `volna_task` with **no assignment**: it picks up this task and enters `spec` of the next part;
 - last part done: `volna_finish` without `part` — outcome of the whole task, total hours, active task cleared;
 - work abandoned mid-way is also a full close: name the remainder in `left`, unfinished parts are marked снята.
@@ -92,7 +101,7 @@ answers in a paragraph.
 Work split into parts is **not handed out to subagents as branches of the flow**. The limit is not price
 but construction: there is one journal (Status is rewritten, the log is append-only), `state.json` points
 at one active task and the edit gate is held by it — parallel branches race on writing. The context between
-parts is reset by `/clear`, which costs nothing.
+parts is reset by `/new`, which costs nothing.
 
 `/volna:parts-run` runs the remaining parts **one at a time**: `volna_part` gives each its own `pi` process
 with a clean context and write rights, and the run stops at the first question or blocker. The subagent is
@@ -115,7 +124,7 @@ The turn goes back to the user only when it must:
 - a stop-criterion: ambiguous statement, missing data or access, divergence from the reference;
 - the user themself is the source of the answer: a mockup to match, a decision that changes days of work;
 - **push** — it is visible to other people and needs an explicit yes. The only mandatory yes in the flow;
-- a part closed: `/clear` and the next `/volna:task` are the user's own commands.
+- a part closed: `/new` and the next `/volna:task` are the user's own commands.
 
 Asking permission to continue is not on that list. Neither is a progress report, a proposed statement, a
 plan, a diff, a screenshot or an outcome: show them as you pass, keep going, and let the user interrupt.
@@ -143,7 +152,7 @@ asked yet»: stop and ask, never guess.
 
 ## Coming back to a task
 
-After `/clear` or a restart the active task and its Status arrive on session start. Then `volna_stage` for
+After `/new` or a restart the active task and its Status arrive on session start. Then `volna_stage` for
 the current stage returns the instructions and context. Never read the log whole — it is opened by address
 when Status points at it. Status beats the log: the log answers «how we got here», not «where things stand».
 

@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Usage } from "@earendil-works/pi-ai";
 import { journalIssues } from "./journal.ts";
-import { type Part, partsFromState, unfinishedParts } from "./parts.ts";
+import { type Part, type PartBrief, partBriefForm, parsePartBriefs, partsFromState, unfinishedParts } from "./parts.ts";
 import { displayPath, loadActive } from "./state.ts";
 import { packageRoot, volnaPaths, workspaceRoot } from "./paths.ts";
 import { emptyUsage, type RunProgress, runPiAgent } from "./piagent.ts";
@@ -29,6 +29,8 @@ export interface PartRunInput {
 	part: Part;
 	/** «Готово, когда»: без критерия подагент не знает, где остановиться, и вернёт «кажется, готово». */
 	criterion: string;
+	/** Границы части из постановки: что трогает, чего не касается, от чего зависит. */
+	brief?: PartBrief;
 	/** Постановка и решения из журнала: подагент читает журнал с диска, это - адрес и акцент. */
 	focus?: string;
 	model?: string;
@@ -56,6 +58,12 @@ export interface PartsReadiness {
 	/** Часть, которую надо гнать следующей: в работе, а если такой нет - первая не начатая. */
 	next?: Part;
 	left: number;
+	/** Постановки частей из лога: по ним берётся критерий «готово, когда». */
+	briefs: PartBrief[];
+	/** Незакрытые части без постановки: их подагенту отдавать нечего. */
+	withoutBrief: number[];
+	/** Что человеку стоит знать до запуска, хотя запуск и возможен. */
+	note: string;
 }
 
 /**
@@ -63,22 +71,52 @@ export interface PartsReadiness {
  * отставшем журнале даёт работу по устаревшей картине, и увидит это только человек - потом.
  */
 export function partsRunReadiness(cwd: string): PartsReadiness {
+	const empty = { briefs: [] as PartBrief[], withoutBrief: [] as number[], note: "" };
 	const active = loadActive(cwd);
 	if (!active) {
-		return { ok: false, message: "Активной задачи нет: прогонять нечего. Принять задание - /volna:task.", parts: [], left: 0 };
+		return {
+			ok: false,
+			message: "Активной задачи нет: прогонять нечего. Принять задание - /volna:task.",
+			parts: [],
+			left: 0,
+			...empty,
+		};
 	}
 	const parts = partsFromState(active.stateSection);
+	const briefs = parsePartBriefs(active.logText);
 	if (!parts.length) {
 		return {
 			ok: false,
 			message: "Задача на части не разбита: прогонять нечего. Обычный ход - /volna:task или /volna:spec.",
 			parts,
 			left: 0,
+			...empty,
+			briefs,
 		};
 	}
 	const left = unfinishedParts(parts);
+	// Постановка части - условие работы подагента, а не украшение: без «готово, когда» он не знает,
+	// где остановиться. Считаются только незакрытые части: у сделанных постановка уже не нужна.
+	const withoutBrief = left
+		.filter((part) => !briefs.find((brief) => brief.number === part.number && brief.criterion.trim()))
+		.map((part) => part.number);
+	const note = withoutBrief.length
+		? [
+				`Без постановки в логе: части ${withoutBrief.join(", ")} - у них нет «готово, когда», и подагенту нечего дать.`,
+				"Допиши подпункт «части» в секцию spec (volna_journal action=log, stage=spec) в этом виде:",
+				partBriefForm(),
+			].join("\n")
+		: "";
 	if (!left.length) {
-		return { ok: false, message: "Незакрытых частей нет: задача идёт к закрытию (/volna:close).", parts, left: 0 };
+		return {
+			ok: false,
+			message: "Незакрытых частей нет: задача идёт к закрытию (/volna:close).",
+			parts,
+			left: 0,
+			briefs,
+			withoutBrief,
+			note,
+		};
 	}
 	if (left.length === 1) {
 		return {
@@ -87,6 +125,9 @@ export function partsRunReadiness(cwd: string): PartsReadiness {
 			parts,
 			next: left[0],
 			left: 1,
+			briefs,
+			withoutBrief,
+			note,
 		};
 	}
 	// Подагент читает журнал с диска, а не пересказ оркестратора: отставшее «Состояние» он примет
@@ -108,9 +149,12 @@ export function partsRunReadiness(cwd: string): PartsReadiness {
 			parts,
 			next: left[0],
 			left: left.length,
+			briefs,
+			withoutBrief,
+			note,
 		};
 	}
-	return { ok: true, message: "", parts, next: left[0], left: left.length };
+	return { ok: true, message: "", parts, next: left[0], left: left.length, briefs, withoutBrief, note };
 }
 
 /** Порядок прогона для оркестратора: текст лежит в скилле пакета, а не в коде. */
@@ -153,6 +197,9 @@ export async function runPart(
 		`Задача ${input.task}, часть ${input.part.number}: ${input.part.title}.`,
 		"",
 		`Готово, когда: ${input.criterion}`,
+		input.brief?.touches ? `Трогает: ${input.brief.touches}` : "",
+		input.brief?.avoids ? `Не трогает: ${input.brief.avoids}` : "",
+		input.brief?.depends ? `Зависит от: ${input.brief.depends}` : "",
 		"",
 		"Журнал задачи (читай с диска, он источник правды о постановке и решениях):",
 		`- состояние: ${displayPath(input.volnaDir, paths.journal(input.task))}`,

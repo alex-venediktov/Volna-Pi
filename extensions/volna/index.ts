@@ -181,7 +181,7 @@ function refreshUi(ctx: ExtensionContext, active: ActiveTask | null): void {
 	ctx.ui.setWidget("volna", lines);
 }
 
-/** Карточка возврата к задаче: то, что нужно после /clear и перезапуска, и ничего больше. */
+/** Карточка возврата к задаче: то, что нужно после /new и перезапуска, и ничего больше. */
 function resumeCard(active: ActiveTask): string {
 	const stage = taskField(active.fm, "stage");
 	const lines = [

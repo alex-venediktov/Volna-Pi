@@ -11,13 +11,20 @@ read from the journal on disk — it is the source of truth, not anyone's retell
 - **no commits, no push, no branch switching, no rebase, no reset.** Delivery is the user's decision, and
   it happens in the parent session. `bash git` is for reading: `status`, `diff`, `log`, `show`;
 - **do not touch the journal** (`.volna/`) and do not change the task state. The parent session writes it;
-- **done when** is given to you in the task. Not met — that is not «done», see the answer format.
+- **done when** is given to you in the task, together with what the part touches, what it must not touch
+  and what it depends on. Those lines are the statement of your part: not met — that is not «done», see the
+  answer format.
 
 ## How to work
 
 1. Read the journal by address: the status file whole (it is one screen), the log only where the status
    points. Never read the log top to bottom.
-2. Find the place in the code by search, not by reading whole files.
+2. Find the place in the code by search, not by reading whole files. **Search with the `grep` and `find`
+   tools, not through `bash`:** they are native and respect `.gitignore`, while `find`, `grep -r` or
+   `ls -R` inside `bash` walk `node_modules` and build output — on Windows each such call is a separate
+   MSYS process eating a core, and a few of them stall the machine and get this run killed on its timeout.
+   `bash` is for the project's own commands: tests, build, `git` reads. **Pass `timeout` on every `bash`
+   call** — the tool has no default one, and a hanging command hangs until this whole run is killed.
 3. Follow the conventions of the surrounding code and the project skills: this is someone's repository,
    and your edit will be read by whoever wrote the rest of it.
 4. Check what you did the way the project checks it — its tests, its build. Say what you ran and what came

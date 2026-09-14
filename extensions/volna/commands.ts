@@ -258,6 +258,9 @@ export function registerCommands(pi: ExtensionAPI): void {
 				"",
 				"Карта частей:",
 				partsMap(readiness.parts),
+				// Часть без «готово, когда» подагенту отдавать нечего: прогон встанет на ней, и
+				// лучше это знать до запуска, чем на второй части
+				readiness.note ? `\n${readiness.note}` : "",
 				args.trim() ? `\nЧеловек добавил к поручению: ${args.trim()}` : "",
 			]
 				.filter(Boolean)

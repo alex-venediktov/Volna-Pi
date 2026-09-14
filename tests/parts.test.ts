@@ -1,11 +1,20 @@
-/** Задача из нескольких частей: список в «Состоянии», закрытие части, продолжение после /clear. */
+/** Задача из нескольких частей: список в «Состоянии», закрытие части, продолжение после /new. */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { collectChanges } from "../extensions/volna/changes.ts";
 import { contextHeader, enterStage, finishTask, intake, resumeTask, statusReport } from "../extensions/volna/core.ts";
 import { initVolna } from "../extensions/volna/init.ts";
 import { appendLogSection, writeStateSection } from "../extensions/volna/journal.ts";
-import { currentPart, parsePartsText, partsFromState, renderPartsText, unfinishedParts } from "../extensions/volna/parts.ts";
+import {
+	currentPart,
+	partBrief,
+	partBriefForm,
+	parsePartBriefs,
+	parsePartsText,
+	partsFromState,
+	renderPartsText,
+	unfinishedParts,
+} from "../extensions/volna/parts.ts";
 import { loadActive, readState, taskField } from "../extensions/volna/state.ts";
 import { check, exec, sandbox } from "./harness.ts";
 
@@ -87,6 +96,62 @@ export async function run(): Promise<void> {
 	);
 
 	await baseMovesWithPart();
+	partStatementsLiveInTheLog();
+}
+
+/**
+ * Постановка части читается из лога: подпункт «части» секции spec. По ней прогон берёт критерий
+ * «готово, когда», и повторный заход на spec перекрывает написанное раньше.
+ */
+function partStatementsLiveInTheLog(): void {
+	const dir = sandbox("parts-brief");
+	initVolna(dir);
+	intake(dir, { assignment: "Разбить работу на части с критериями" });
+	const volnaDir = join(dir, ".volna");
+	const task = readState(volnaDir).active!;
+
+	appendLogSection(volnaDir, task, {
+		stage: "spec",
+		fields: {
+			что: "постановка задачи",
+			части: [
+				"1. схема хранения",
+				"   готово, когда: npm test зелёный на tests/store.test.ts",
+				"   трогает: src/store/**",
+				"   не трогает: UI, миграции",
+				"   зависит от: нет",
+				"2. приём шага по форме",
+				"   готово, когда: форма сохраняет шаг, в списке появляется запись",
+				"   зависит от: часть 1",
+			].join("\n"),
+			сделано: "части намечены",
+		},
+	});
+	let log = readFileSync(loadActive(dir)!.logPath, "utf8");
+	const briefs = parsePartBriefs(log);
+	check("постановки частей разобраны", briefs.length === 2, String(briefs.length));
+	check("критерий части прочитан", briefs[0].criterion.includes("tests/store.test.ts"), briefs[0].criterion);
+	check("границы части прочитаны", briefs[0].touches === "src/store/**" && briefs[0].avoids === "UI, миграции", briefs[0].avoids);
+	check("зависимость части прочитана", briefs[1].depends === "часть 1", briefs[1].depends);
+	check("названия частей не съедены полями", briefs[1].title === "приём шага по форме", briefs[1].title);
+	check("постановка одной части находится по номеру", partBrief(log, 2)?.criterion.includes("форма сохраняет шаг") === true);
+	check("часть без постановки критерия не получает", partBrief(log, 3) === undefined);
+
+	appendLogSection(volnaDir, task, {
+		stage: "spec",
+		fields: {
+			что: "постановка переписана",
+			части: ["1. схема хранения", "   готово, когда: миграция прогоняется на копии базы"].join("\n"),
+			сделано: "критерий первой части уточнён",
+		},
+	});
+	log = readFileSync(loadActive(dir)!.logPath, "utf8");
+	check(
+		"повторный заход на spec перекрывает постановку",
+		partBrief(log, 1)?.criterion === "миграция прогоняется на копии базы",
+		partBrief(log, 1)?.criterion ?? "(пусто)",
+	);
+	check("форма постановки одна на промпт и на отказ", partBriefForm().includes("готово, когда:"), partBriefForm().slice(0, 40));
 }
 
 /** Закрытие части сдвигает базу адвоката: следующая часть ставит свою точку начала на implement. */

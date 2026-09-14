@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { intake } from "../extensions/volna/core.ts";
 import { initVolna } from "../extensions/volna/init.ts";
-import { writeStateSection } from "../extensions/volna/journal.ts";
+import { appendLogSection, writeStateSection } from "../extensions/volna/journal.ts";
 import { volnaPaths } from "../extensions/volna/paths.ts";
 import { continues, parseOutcome, partsMap, partsRunInstructions, partsRunReadiness } from "../extensions/volna/runner.ts";
 import { readState } from "../extensions/volna/state.ts";
@@ -57,6 +57,30 @@ function readiness(): void {
 	check("на двух незакрытых частях прогон готов", ready.ok, ready.message);
 	check("следующей идёт первая незакрытая", ready.next?.number === 2, String(ready.next?.number));
 	check("карта частей показывает все три", partsMap(ready.parts).split("\n").length === 3);
+	// Постановки частей в логе нет: прогон возможен, но части без «готово, когда» названы заранее,
+	// а не выясняются на середине работы
+	check("части без постановки названы до запуска", ready.withoutBrief.join(",") === "2,3", ready.withoutBrief.join(","));
+	check("сказано, что дописать", ready.note.includes("готово, когда:"), ready.note.split("\n")[0]);
+
+	appendLogSection(volnaDir, task, {
+		stage: "spec",
+		fields: {
+			что: "постановка частей",
+			части: [
+				"1. ядро вики",
+				"   готово, когда: записи разбираются, линт зелёный",
+				"2. указатели",
+				"   готово, когда: /volna:wiki-index собирает шарды из записей",
+				"3. команды",
+				"   готово, когда: /volna:wiki-lint и /volna:wiki-verify отвечают кодами 0-3",
+			].join("\n"),
+			сделано: "части намечены",
+		},
+	});
+	writeParts(volnaDir, task, "1. ядро вики - сделано (2026-09-13, 4ч)\n2. указатели - не начата\n3. команды - не начата");
+	const withBriefs = partsRunReadiness(dir);
+	check("постановки частей прочитаны прогоном", withBriefs.briefs.length === 3, String(withBriefs.briefs.length));
+	check("с постановками замечаний нет", withBriefs.ok && !withBriefs.note, withBriefs.note.split("\n")[0]);
 
 	// «Состояние» без обязательного подпункта - ровно тот случай, когда подагент прочтёт с диска
 	// не ту картину: запуск обязан встать до того, как он начнёт работать

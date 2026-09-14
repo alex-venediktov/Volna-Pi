@@ -12,7 +12,8 @@ Do now:
 4. Call `volna_recall` with keywords from the assignment. The same work may sit in a past journal;
    a knowledge note may forbid the obvious path. Say out loud what you found or that nothing matched.
 
-Stop and ask when: the result is not defined; the assignment holds several independent results (take
-the first, the rest become separate tasks — this version has no task splitting).
+Stop and ask when: the result is not defined; the assignment holds results that belong to different tasks
+(one journal, one branch — unrelated work is a separate task, not a part). Several independent results
+inside **one** goal are not a reason to stop: that is a split into parts, and it is decided on `spec`.
 
 Done: goal stated, type right, recall reported. Then `volna_stage stage=analyze`, same turn.

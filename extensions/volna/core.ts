@@ -133,7 +133,7 @@ export function intake(cwd: string, options: IntakeOptions): FlowResult {
 }
 
 /**
- * Продолжение задачи после /clear: есть остаток по частям - поднять задачу и войти в spec следующей
+ * Продолжение задачи после /new: есть остаток по частям - поднять задачу и войти в spec следующей
  * части, не спрашивая «начинаем?». Ответ на этот вопрос человек дал, когда делил задачу.
  */
 export async function resumeTask(cwd: string, exec?: ExecLike): Promise<FlowResult> {
@@ -405,7 +405,7 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 				parts: renderPartsText(closedParts),
 				done: options.summary,
 				next: following
-					? `часть ${following.number}/${parts.length}: ${following.title} - начать со spec после /clear`
+					? `часть ${following.number}/${parts.length}: ${following.title} - начать со spec после /new`
 					: "все части сделаны - полное закрытие задачи (этап close)",
 				careful: options.left,
 			},
@@ -429,7 +429,7 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 					? `Осталось частей: ${rest.length - 1}. Следующая - ${following.number}: ${following.title}.`
 					: "Это была последняя часть: дальше полное закрытие задачи.",
 				"Задача остаётся активной, ветка та же, часы копятся до полного закрытия.",
-				following ? "Продолжение: /clear, затем /volna:task без аргумента - поднимет эту задачу и войдёт в spec следующей части." : "",
+				following ? "Продолжение: /new, затем /volna:task без аргумента - поднимет эту задачу и войдёт в spec следующей части." : "",
 			]
 				.filter(Boolean)
 				.join(" "),
@@ -496,7 +496,7 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 			"Активная задача снята: шапка и гейты по ней больше не работают.",
 			`Журнал остался: ${displayPath(volnaDir, active.journalPath)}.`,
 			cleaned.length ? `Убрано за задачей: ${cleaned.join(", ")}.` : "",
-			"Следующую задачу начинай с чистого контекста: /new или /clear, затем /volna:task.",
+			"Следующую задачу начинай с чистого контекста: /new, затем /volna:task.",
 		]
 			.filter(Boolean)
 			.join(" "),
@@ -575,7 +575,7 @@ export function journalWarnings(active: ActiveTask): string[] {
 	return warnings;
 }
 
-/** Контекст задачи в инструкции этапа: то, что нужно после /clear, и ничего больше. */
+/** Контекст задачи в инструкции этапа: то, что нужно после /new, и ничего больше. */
 function taskContextBlock(active: ActiveTask, volnaDir: string): string {
 	const lines = ["## Task", ""];
 	lines.push(`${active.task} — ${taskField(active.fm, "title") || "(no title)"} · type ${taskField(active.fm, "type") || "?"}`);

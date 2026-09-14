@@ -97,6 +97,44 @@ function resolvePiCli(): string | null {
 	return null;
 }
 
+/**
+ * Снять подпроцесс вместе с его детьми. Обычный kill бьёт только сам pi, а работу в это время
+ * делают его дети: оболочка и то, что она запустила (на Windows это ещё и MSYS-утилиты вроде
+ * find.exe, по ядру на каждую). После снятого по таймауту прогона они остаются жить, копятся от
+ * прогона к прогону и забирают машину у следующего - поэтому снимается дерево, а не процесс.
+ */
+function killTree(proc: ReturnType<typeof spawn>): void {
+	const pid = proc.pid;
+	if (!pid) return;
+	if (process.platform === "win32") {
+		try {
+			spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { stdio: "ignore", detached: true, windowsHide: true }).unref();
+		} catch {}
+		try {
+			proc.kill("SIGKILL");
+		} catch {}
+		return;
+	}
+	// Группа процессов есть потому, что подпроцесс запущен detached: без неё сигнал получил бы
+	// только сам pi, а оболочка с её детьми осталась бы работать.
+	try {
+		process.kill(-pid, "SIGTERM");
+	} catch {
+		try {
+			proc.kill("SIGTERM");
+		} catch {}
+	}
+	setTimeout(() => {
+		try {
+			process.kill(-pid, "SIGKILL");
+		} catch {
+			try {
+				proc.kill("SIGKILL");
+			} catch {}
+		}
+	}, 5000).unref();
+}
+
 export interface RunProgress {
 	(update: { toolCalls: number; lastText: string }): void;
 }
@@ -137,6 +175,8 @@ export async function runPiAgent(
 			proc = spawn(invocation.command, invocation.args, {
 				cwd: options.cwd,
 				shell: false,
+				// Своя группа процессов: по ней снимается всё дерево подпроцесса, а не один pi.
+				detached: process.platform !== "win32",
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 		} catch (error) {
@@ -148,7 +188,7 @@ export async function runPiAgent(
 		const timer = options.timeoutMs
 			? setTimeout(() => {
 					result.aborted = true;
-					proc.kill("SIGTERM");
+					killTree(proc);
 				}, options.timeoutMs)
 			: null;
 
@@ -211,10 +251,7 @@ export async function runPiAgent(
 		if (options.signal) {
 			const kill = () => {
 				result.aborted = true;
-				proc.kill("SIGTERM");
-				setTimeout(() => {
-					if (!proc.killed) proc.kill("SIGKILL");
-				}, 5000);
+				killTree(proc);
 			};
 			if (options.signal.aborted) kill();
 			else options.signal.addEventListener("abort", kill, { once: true });
