@@ -7,12 +7,14 @@ import { initVolna } from "../extensions/volna/init.ts";
 import { appendLogSection, writeStateSection } from "../extensions/volna/journal.ts";
 import {
 	currentPart,
+	markPart,
 	partBrief,
 	partBriefForm,
 	parsePartBriefs,
 	parsePartsText,
 	partsFromState,
 	renderPartsText,
+	takePart,
 	unfinishedParts,
 } from "../extensions/volna/parts.ts";
 import { loadActive, readState, taskField } from "../extensions/volna/state.ts";
@@ -152,6 +154,26 @@ function partStatementsLiveInTheLog(): void {
 		partBrief(log, 1)?.criterion ?? "(пусто)",
 	);
 	check("форма постановки одна на промпт и на отказ", partBriefForm().includes("готово, когда:"), partBriefForm().slice(0, 40));
+
+	// Часть, отданную подагенту, видно в карте частей начатой: иначе остановка на вопросе выглядит
+	// так, будто за неё никто не брался
+	const journalPath = loadActive(dir)!.journalPath;
+	writeStateSection(journalPath, {
+		goal: "части",
+		parts: "1. схема хранения - не начата\n2. приём шага по форме - не начата",
+		done: "части намечены",
+		next: "первая часть",
+	});
+	const before = partsFromState(loadActive(dir)!.stateSection);
+	check("часть берётся в работу", takePart(journalPath, before, 1));
+	check(
+		"взятая часть видна начатой",
+		partsFromState(loadActive(dir)!.stateSection)[0].status === "в работе",
+		partsFromState(loadActive(dir)!.stateSection)[0].status,
+	);
+	check("повторное взятие ничего не переписывает", !takePart(journalPath, partsFromState(loadActive(dir)!.stateSection), 1));
+	const closed = markPart(partsFromState(loadActive(dir)!.stateSection), 2, "сделано", "2026-09-14, 1ч");
+	check("закрытую часть в работу не вернуть", !takePart(journalPath, closed, 2));
 }
 
 /** Закрытие части сдвигает базу адвоката: следующая часть ставит свою точку начала на implement. */

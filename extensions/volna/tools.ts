@@ -16,7 +16,7 @@ import { branchFor, commitChanges, deliverySettings, ensureBranch, gitState, pus
 import { enterStage, finishTask, intake, resumeTask, skipStage, statusReport } from "./core.ts";
 import { initVolna } from "./init.ts";
 import { appendLogSection, journalIssues, stamp, writeStateSection } from "./journal.ts";
-import { currentPart, partBriefForm, partsFromState } from "./parts.ts";
+import { currentPart, partBriefForm, partsFromState, takePart } from "./parts.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { displayPath, loadActive, profileValue, readProfile, taskField, updateFrontmatter } from "./state.ts";
 import { STAGE_NAMES } from "./stages.ts";
@@ -643,6 +643,11 @@ ${report.summary}` },
 					].join("\n"),
 				);
 			}
+
+			// Часть переводится в работу до запуска: иначе прогон идёт, а в карте частей, шапке и
+			// футере она стоит «не начата» - и остановка на вопросе оставляет её такой же, будто
+			// подагента никто не заводил.
+			takePart(active.journalPath, readiness.parts, part.number);
 
 			const profile = readProfile(active.volnaDir);
 			const model = params.model || profileValue(profile, "модель подагента") || undefined;

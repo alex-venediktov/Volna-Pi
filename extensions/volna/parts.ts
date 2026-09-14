@@ -71,6 +71,19 @@ export function markPart(parts: Part[], number: number, status: PartStatus, note
 	return parts.map((part) => (part.number === number ? { ...part, status, note } : part));
 }
 
+/**
+ * Отметить часть взятой в работу. Уже начатую или закрытую часть не трогает: статус «в работе»
+ * ставится один раз, а поверх закрытой он стёр бы её итог.
+ *
+ * Нужно там, где работу части делает не сессия: пока она идёт, карта частей, шапка и футер обязаны
+ * показывать часть начатой - иначе остановка на вопросе выглядит так, будто за неё никто не брался.
+ */
+export function takePart(journalPath: string, parts: Part[], number: number): boolean {
+	const part = parts.find((item) => item.number === number);
+	if (!part || part.status !== "не начата") return false;
+	return writeParts(journalPath, markPart(parts, number, "в работе"));
+}
+
 export interface PartBrief {
 	number: number;
 	title: string;
