@@ -46,6 +46,12 @@ export interface CollectOptions {
 	signal?: AbortSignal;
 }
 
+/**
+ * Имена файлов как они есть: без этого git отдаёт кириллицу восьмеричными кодами (`Ð·...`), и
+ * такой путь не найти ни глазами в отчёте адвоката, ни инструментом чтения.
+ */
+const QUOTEPATH = ["-c", "core.quotepath=false"] as const;
+
 const MAX_TEXT_BYTES = 256 * 1024;
 
 const BINARY_EXTENSIONS = new Set([
@@ -87,16 +93,16 @@ export async function collectChanges(exec: ExecLike, options: CollectOptions): P
 	const files: ChangedFile[] = [];
 	let body = "";
 	if (base) {
-		const status = await exec("git", ["-C", root, "diff", "--name-status", base], { signal: options.signal });
+		const status = await exec("git", [...QUOTEPATH, "-C", root, "diff", "--name-status", base], { signal: options.signal });
 		for (const line of status.stdout.split(/\r?\n/)) {
 			const match = /^([A-Z])\d*\s+(.+)$/.exec(line.trim());
 			if (!match) continue;
 			files.push({ path: normalizePath(match[2]), status: gitStatus(match[1]) });
 		}
-		body = (await exec("git", ["-C", root, "diff", base], { signal: options.signal })).stdout;
+		body = (await exec("git", [...QUOTEPATH, "-C", root, "diff", base], { signal: options.signal })).stdout;
 	}
 
-	const untracked = await exec("git", ["-C", root, "ls-files", "--others", "--exclude-standard"], { signal: options.signal });
+	const untracked = await exec("git", [...QUOTEPATH, "-C", root, "ls-files", "--others", "--exclude-standard"], { signal: options.signal });
 	const newFiles = untracked.stdout
 		.split(/\r?\n/)
 		.map((line) => line.trim())

@@ -117,7 +117,10 @@ export async function collectDiff(
 	mkdirSync(dir, { recursive: true });
 
 	const changes = await collectChanges(exec, { volnaDir, base, signal });
-	const path = join(dir, `${task}-${stamp().replace(/[^\d]/g, "")}.diff`);
+	// Имя постоянное, а не с меткой времени: проверка идёт порциями, и дифф целиком пересобирается
+	// на каждом прогоне. С меткой в temp оставалось по копии на прогон - десяток одинаковых файлов
+	// на задачу, а история прогонов и так лежит в журнале проверок.
+	const path = join(dir, `${task}-full.diff`);
 	writeFileSync(path, changes.diff || "(изменений нет)", "utf8");
 
 	const stat = changes.files.length
@@ -335,10 +338,13 @@ export async function runAdvocate(
 	result.runs = ledgerSummary(ledger);
 	result.overall = worstVerdict(ledger);
 	// Вердикт «не определён» порцию не зачитывает: её файлы вернутся в следующий прогон, значит
-	// остаток не меньше, чем был.
+	// остаток не меньше, чем был. Разобранная порция, наоборот, уже проверена - иначе ответ считает
+	// проверенным только то, что было до неё, и числа в нём не сходятся с остатком.
 	if (result.verdict === "не определён") {
 		result.filesLeft += batch.sections.length;
 		result.pending = true;
+	} else {
+		result.filesDone += batch.sections.length;
 	}
 	return result;
 }
