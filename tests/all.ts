@@ -7,6 +7,7 @@
 import { results } from "./harness.ts";
 import { run as runAdvocate } from "./advocate.test.ts";
 import { run as runAssignment } from "./assignment.test.ts";
+import { run as runAutopilot } from "./autopilot.test.ts";
 import { run as runChanges } from "./changes.test.ts";
 import { run as runDeliver } from "./deliver.test.ts";
 import { run as runDeploy } from "./deploy.test.ts";
@@ -31,6 +32,7 @@ const suites: Array<[string, () => Promise<void>]> = [
 	["дифф адвоката и визуальная проверка", runAdvocate],
 	["вика выводов", runWiki],
 	["прогон частей подагентом", runRunner],
+	["внешний прогон частей сессиями pi", runAutopilot],
 ];
 
 for (const [name, run] of suites) {

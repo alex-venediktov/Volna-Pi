@@ -6,3 +6,4 @@ node_modules/
 .volna/advocate/
 .volna/baseline/
 package-lock.json
+*.jsonl

@@ -103,7 +103,7 @@ function resolvePiCli(): string | null {
  * find.exe, по ядру на каждую). После снятого по таймауту прогона они остаются жить, копятся от
  * прогона к прогону и забирают машину у следующего - поэтому снимается дерево, а не процесс.
  */
-function killTree(proc: ReturnType<typeof spawn>): void {
+export function killTree(proc: ReturnType<typeof spawn>): void {
 	const pid = proc.pid;
 	if (!pid) return;
 	if (process.platform === "win32") {
