@@ -230,6 +230,12 @@ function operations(): void {
 	check("повторное разворачивание соглашения не трогает", initWiki(root).skipped);
 
 	writeRecord(root, "process/wiki-index-threshold.md", RECORD);
+	// Узел подсказка берёт у существующих записей, и пустой раздел предложить ей нечем: без
+	// перечня разделов первая запись определяет раздел навсегда, а остальные стоят пустыми
+	const placed = runWiki("place", { root, query: "совсем другая тема про кофеварку" });
+	check("без совпадения названы все разделы", placed.text.includes("project - записей 0"), placed.text);
+	check("у раздела названо назначение", placed.text.includes("знание о самом продукте"), placed.text);
+	check("занятый раздел показан со счётом", placed.text.includes("process - записей 1"), placed.text);
 	const plan = runWiki("index", { root });
 	check("без fix указатели только планируются", plan.code === 0 && !existsSync(join(root, "INDEX.md")));
 

@@ -20,6 +20,9 @@ created behind the user's back.
    - a technique that worked;
    - a trap and its early sign («the value does not match — first check which reference build is open»);
    - a property of the reference or the infrastructure (encodings, dumper behaviour, fixture format);
+   - a property of the product itself: a rule, a number, a dependency that stays true after this
+     task (a camera height, a threshold, a formula). This is what `project` is for; skip it and the
+     section stays empty while every record slides into `process`;
    - a disproved hypothesis — so nobody checks it again.
 2. **Drop** the circumstances of this order, the correspondence, numbers and statuses — everything that
    means something only inside this task.

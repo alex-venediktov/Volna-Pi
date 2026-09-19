@@ -15,6 +15,7 @@ import {
 	isIndexFile,
 	loadSchema,
 	readRecords,
+	SECTION_PURPOSE,
 	type ReferenceRoot,
 	unparsedLocators,
 	verifyAnchor,
@@ -246,6 +247,15 @@ export function runWiki(action: WikiAction, options: WikiRunOptions, deps: WikiO
 			return done(0);
 		}
 		say(`\nподходящего узла нет${p.dir ? ` (ближайший ${p.dir}, вес ${p.score})` : ""}`);
+		// Узел подсказка берёт у существующих записей, поэтому пустой раздел предложить ей нечем.
+		// Разделы называются целиком и со счётом: иначе первая запись определяет раздел навсегда,
+		// а остальные так и стоят пустыми, сколько бы выводов им ни полагалось.
+		say("\nразделы:");
+		for (const name of Object.keys(schema.sections)) {
+			const count = records.filter((r) => r.section === name).length;
+			const purpose = SECTION_PURPOSE[name] ?? "";
+			say(`  ${name} - записей ${count}${purpose ? `, ${purpose}` : ""}`);
+		}
 		say(`завести: ${p.suggestion?.dir}`);
 		if (p.suggestion?.unmatched.length) say(`  слова задачи без узла: ${p.suggestion.unmatched.join(", ")}`);
 		say("  имя узла - одно слово; описание темы дописать в SCHEMA.md, ключ topics");
