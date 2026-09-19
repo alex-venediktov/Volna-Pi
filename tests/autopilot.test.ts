@@ -355,6 +355,10 @@ function bounds(): void {
 	// Журнал и вику правит сам флоу на каждом этапе: к границе части они не относятся
 	check("журнал за границу не считается", !stray.some((file) => file.startsWith(".volna/")), stray.join(" | "));
 	check("без поля «трогает» проверять нечем", strayFiles(changed, "").length === 0);
+	// Спутник движка и тест к своему файлу пишет та же часть: в поле «трогает» карточки их нет,
+	// но чужой работой они от этого не становятся
+	check("спутник движка чужим не считается", strayFiles(["game/core/input/gesture_input.gd.uid"], touches).length === 0);
+	check("тест к своему файлу чужим не считается", strayFiles(["game/tests/unit/test_gesture_input.gd"], touches).length === 0);
 
 	check("критерий с телефоном ждёт человека", needsHuman("проверяется руками на телефоне"));
 	check("критерий с замером ждёт человека", needsHuman("замер записать в docs/perf-log.md"));

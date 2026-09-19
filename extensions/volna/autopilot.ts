@@ -252,10 +252,22 @@ export function touchedPrefixes(touches: string): string[] {
 export function strayFiles(changed: string[], touches: string): string[] {
 	const prefixes = touchedPrefixes(touches);
 	if (!prefixes.length) return [];
+	const inside = (file: string): boolean =>
+		prefixes.some((prefix) => file === prefix || file.startsWith(prefix) || file.endsWith(`/${prefix}`) || base(file) === base(prefix));
 	return changed
 		.map((file) => file.replace(/\\/g, "/"))
 		.filter((file) => file && !file.startsWith(".volna/"))
-		.filter((file) => !prefixes.some((prefix) => file === prefix || file.startsWith(prefix) || file.endsWith(`/${prefix}`) || file.split("/").pop() === prefix.split("/").pop()));
+		.filter((file) => !inside(file))
+		// Спутник движка (.uid, .import) руками не пишут: он заводится к своему файлу сам.
+		.filter((file) => !inside(file.replace(/\.(uid|import)$/, "")))
+		// Тест к своему файлу пишет та же часть: в проекте нет частей без тестов, а в поле
+		// «трогает» карточки тестов обычно нет - там перечислен деливерабл.
+		.filter((file) => !inside(file.replace(/(^|\/)test_/, "$1")))
+}
+
+/** Имя файла без каталогов. */
+function base(path: string): string {
+	return path.split("/").pop() ?? path;
 }
 
 /** Закрыта ли часть по журналу на диске. Часть исчезла из списка - считается незакрытой. */
