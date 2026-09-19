@@ -67,7 +67,7 @@ export function stageInstructions(name: string): string {
  * входом в этап, а токенизаторы локальных моделей на английском экономнее; язык ответов и журнала
  * задаётся здесь же отдельной строкой.
  */
-export function stageDuties(stage: Stage, ctx: { task: string; journalRel: string; logRel: string; iteration: number }): string {
+export function stageDuties(stage: Stage, ctx: { task: string; journalRel: string; iteration: number }): string {
 	const level =
 		stage.level === "required"
 			? "required: never skipped. Of its actions only the outward-facing ones (push, clearing the active task) need an explicit yes."
@@ -77,7 +77,7 @@ export function stageDuties(stage: Stage, ctx: { task: string; journalRel: strin
 	return [
 		`## Duties (level: ${stage.level})`,
 		"",
-		`Task ${ctx.task}, stage iteration ${ctx.iteration}. Journal: ${ctx.journalRel} (status), ${ctx.logRel} (append-only log).`,
+		`Task ${ctx.task}, stage iteration ${ctx.iteration}. Journal status: ${ctx.journalRel}. Status text is below - read the file only to re-check it.`,
 		"",
 		"1. Work per the instructions below.",
 		"2. End the stage with volna_journal action=log. The tool sets format and timestamp - never write journal markdown by hand.",

@@ -265,7 +265,6 @@ export async function enterStage(cwd: string, stageName: string, options: EnterS
 	const duties = stageDuties(stage, {
 		task: active.task,
 		journalRel: displayPath(volnaDir, paths.journal(active.task)),
-		logRel: displayPath(volnaDir, paths.log(active.task)),
 		iteration,
 	});
 
