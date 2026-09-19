@@ -40,6 +40,7 @@ export type StopReason =
 	| "часть не закрыта"
 	| "молчание"
 	| "тронута чужая часть"
+	| "ход прерван наблюдением"
 	| "работа за границей части"
 	| "закрытие без человека"
 	| "задача закрыта"
@@ -299,6 +300,8 @@ export interface PartRunLog {
 	toolCalls: number;
 	/** Статусы, поменянные не у своей части: закрытие, поставленное не туда. */
 	stray: StrayChange[];
+	/** Чем наблюдение прервало ход, если прервало. */
+	stoppedBy: string;
 	/** Файлы, тронутые за объявленной границей части. */
 	strayPaths: string[];
 	/** Последний ответ сессии: что она сказала, останавливаясь. */
@@ -325,6 +328,10 @@ export interface AutopilotOptions {
 	maxNudges: number;
 	/** Сколько раз просить продолжить часть, которая осела незакрытой. */
 	maxContinues: number;
+	/** Потолок вызовов инструментов на одну часть. Ноль снимает предел. */
+	maxToolCalls?: number;
+	/** Потолок времени на одну часть в миллисекундах. Ноль снимает предел. */
+	partMs?: number;
 	/** Дальше этой части не идти: место, где человек знает про ручную проверку заранее. */
 	until?: number;
 	args?: string[];
@@ -405,9 +412,11 @@ function absorb(log: PartRunLog, turn: RpcTurnResult, signal?: AbortSignal): Sto
 	log.notes.push(...turn.notes);
 	if (turn.texts.length) log.lastText = turn.texts[turn.texts.length - 1];
 	log.stderr = turn.stderr;
+	if (turn.stoppedBy) log.stoppedBy = turn.stoppedBy;
 	if (turn.exited) return "сбой процесса";
 	if (turn.stalled) return "ход не начался";
 	if (turn.asks.length) return "нужен человек";
+	if (turn.stoppedBy) return "ход прерван наблюдением";
 	if (turn.aborted) return signal?.aborted ? "отменён" : "молчание";
 	return null;
 }
@@ -444,6 +453,7 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 			notes: [],
 			toolCalls: 0,
 			stray: [],
+			stoppedBy: "",
 			strayPaths: [],
 			lastText: "",
 			stderr: "",
@@ -458,6 +468,15 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 			maxNudges: options.maxNudges,
 			signal: options.signal,
 			onEvent: (event) => options.onEvent?.(part, event),
+			// Наблюдение по ходу, а не после: сессия, которая закрыла свою часть и пошла дальше,
+			// до разбора итога не доходит - управление возвращается только на оседании.
+			watch: ({ toolCalls, elapsedMs }) => {
+				const moved = strayChanges(before, partsNow(volnaDir, task), part.number);
+				if (moved.length) return `тронута часть ${moved[0].number}`;
+				if (options.maxToolCalls && toolCalls > options.maxToolCalls) return `вызовов инструментов больше ${options.maxToolCalls}`;
+				if (options.partMs && elapsedMs > options.partMs) return `часть идёт дольше ${Math.round(options.partMs / 60000)} минут`;
+				return null;
+			},
 		});
 		let stop: StopReason | null = null;
 		try {
@@ -525,6 +544,7 @@ export async function runTaskCapture(options: TaskCaptureOptions): Promise<PartR
 		notes: [],
 		toolCalls: 0,
 		stray: [],
+		stoppedBy: "",
 		strayPaths: [],
 		lastText: "",
 		stderr: "",
@@ -609,6 +629,9 @@ function stopDetail(stop: StopReason, log: PartRunLog): string {
 	if (stop === "тронута чужая часть") {
 		const stray = log.stray.map((item) => `часть ${item.number} («${item.title}»): ${item.from} -> ${item.to}`).join("; ");
 		return `${head} Сессия поменяла статус не своей части: ${stray}. Статус в журнале верить нельзя, пока человек не сверит его с работой.`;
+	}
+	if (stop === "ход прерван наблюдением") {
+		return `${head} Ход прерван по ходу работы: ${log.stoppedBy}. Дальше сессия работала бы, не возвращая управления.`;
 	}
 	if (stop === "работа за границей части") {
 		return `${head} Сессия правила файлы за объявленной границей: ${log.strayPaths.join(", ")}. Граница взята из поля «трогает» постановки этой части.`;

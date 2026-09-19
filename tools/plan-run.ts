@@ -29,6 +29,8 @@ interface Args {
 	dryRun: boolean;
 	noCapture: boolean;
 	transcript: string;
+	maxToolCalls: number;
+	partMinutes: number;
 	help: boolean;
 }
 
@@ -43,6 +45,8 @@ const USAGE = [
 	"  --nudges <N>        сколько раз будить молчащую сессию, прежде чем считать ход потерянным (2)",
 	"  --continues <N>     сколько раз просить продолжить часть, осевшую незакрытой (1)",
 	"  --until <номер>     дальше этой части не идти",
+	"  --max-calls <N>     потолок вызовов инструментов на часть, 0 снимает предел (150)",
+	"  --part-minutes <N>  потолок времени на часть, 0 снимает предел (90)",
 	"  --model <id>        модель сессий прогона (по умолчанию модель pi)",
 	"  --quiet             без потока хода работы, только итоги частей",
 	"  --transcript <путь> полная стенограмма потока событий в JSONL: задания, ответы, инструменты",
@@ -67,6 +71,8 @@ function parseArgs(argv: string[]): Args {
 		dryRun: false,
 		noCapture: false,
 		transcript: "",
+		maxToolCalls: 150,
+		partMinutes: 90,
 		help: false,
 	};
 	for (let i = 0; i < argv.length; i++) {
@@ -79,6 +85,8 @@ function parseArgs(argv: string[]): Args {
 		else if (key === "--dir") (args.dir = resolve(value ?? "")), i++;
 		else if (key === "--model") (args.model = value ?? ""), i++;
 		else if (key === "--transcript") (args.transcript = resolve(value ?? "")), i++;
+		else if (key === "--max-calls") (args.maxToolCalls = Number(value)), i++;
+		else if (key === "--part-minutes") (args.partMinutes = Number(value)), i++;
 		else if (key === "--idle") (args.idleMinutes = Number(value)), i++;
 		else if (key === "--start") (args.startMinutes = Number(value)), i++;
 		else if (key === "--nudges") (args.nudges = Number(value)), i++;
@@ -200,6 +208,8 @@ async function main(): Promise<number> {
 		startMs: Math.round(args.startMinutes * 60 * 1000),
 		maxNudges: args.nudges,
 		maxContinues: args.continues,
+		maxToolCalls: args.maxToolCalls,
+		partMs: Math.round(args.partMinutes * 60 * 1000),
 		until: args.until,
 		args: args.model ? ["--model", args.model] : [],
 		signal: canceller.signal,

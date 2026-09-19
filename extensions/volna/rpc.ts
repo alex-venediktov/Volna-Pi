@@ -46,6 +46,8 @@ export interface RpcTurnResult {
 	exited: boolean;
 	/** Сессия не начала ход: признаков работы не пришло вовсе. */
 	stalled: boolean;
+	/** Ход прерван наблюдением по ходу: причина словами вызывающего. */
+	stoppedBy: string;
 	stderr: string;
 }
 
@@ -67,6 +69,12 @@ export interface RpcSessionOptions {
 	maxNudges?: number;
 	/** Ход прогона наружу: строка события на каждое событие потока. */
 	onEvent?: (event: RpcEvent) => void;
+	/**
+	 * Наблюдение по ходу: зовётся тем же таймером, что и сторож простоя. Непустая строка -
+	 * причина прервать ход. Нужно потому, что после хода разбирать нечего, пока ход идёт:
+	 * сессия, работающая без остановки, управления не возвращает.
+	 */
+	watch?: (state: { toolCalls: number; elapsedMs: number }) => string | null;
 	signal?: AbortSignal;
 	/** Чем поднимать сессию вместо самого pi. Нужно тесту протокола: живой pi требует модели. */
 	exec?: { command: string; args: string[] };
@@ -195,6 +203,7 @@ export function startRpcSession(options: RpcSessionOptions): RpcSession {
 				aborted: false,
 				exited: false,
 				stalled: false,
+				stoppedBy: "",
 				stderr: "",
 			};
 			if (!running) {
@@ -295,10 +304,22 @@ export function startRpcSession(options: RpcSessionOptions): RpcSession {
 			// До первого признака хода сторож считает по своему порогу: не начавшуюся сессию нечего
 			// прерывать, её надо признать несостоявшейся и отдать человеку.
 			const tick = Math.max(100, Math.min(15000, Math.floor(Math.min(idleMs || startMs, startMs || idleMs) / 4)));
+			const began = Date.now();
 			watch =
-				idleMs || startMs
+				idleMs || startMs || options.watch
 					? setInterval(() => {
 							if (done || interrupted) return;
+							// Наблюдение идёт по ходу, а не после него: сессия, которая работает без
+							// остановки, до разбора итога не доходит никогда - управление возвращается
+							// только на оседании. Политику решает вызывающий, сеанс лишь прерывает.
+							const verdict = options.watch?.({ toolCalls: result.toolCalls, elapsedMs: Date.now() - began });
+							if (verdict) {
+								result.stoppedBy = verdict;
+								interrupted = true;
+								last = Date.now();
+								send({ type: "abort" });
+								return;
+							}
 							const quiet = Date.now() - last;
 							if (!started && startMs) {
 								if (quiet < startMs) return;
