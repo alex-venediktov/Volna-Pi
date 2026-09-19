@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { initVolna } from "../extensions/volna/init.ts";
+import { packageRoot } from "../extensions/volna/paths.ts";
 import { STAGE_NAMES, STAGES, stageInstructions } from "../extensions/volna/stages.ts";
 import { DEFAULTS, field, loadSchema, parseAnchors, readRecords, unparsedLocators, verifyAnchor } from "../extensions/volna/wiki.ts";
 import { planIndexes, planPlacement, planRoute } from "../extensions/volna/wiki-index.ts";
@@ -19,6 +20,7 @@ export async function run(): Promise<void> {
 	stageOrdering();
 	lintFindings();
 	operations();
+	profileNaming();
 	captureStage();
 }
 
@@ -273,4 +275,13 @@ function captureStage(): void {
 	check("visual ведёт в capture", STAGES.find((s) => s.name === "visual")?.next === "capture");
 	check("capture ведёт в deliver", STAGES.find((s) => s.name === "capture")?.next === "deliver");
 	check("инструкция этапа лежит в скилле", stageInstructions("capture").startsWith("# Stage 9 · capture"));
+}
+
+/** Имя строки профиля про внешнюю вику не путается с локальной викой выводов. */
+function profileNaming(): void {
+	const template = readFileSync(join(packageRoot(), "templates", "project.template.md"), "utf8");
+	// Строка «вики: нет» читалась как «вики не существует», и capture пропускал .volna/wiki
+	check("строка названа внешней", template.includes("- внешняя вика:"), template.split("\n").find((l) => l.includes("вика:")) ?? "");
+	check("прежнего имени в шаблоне нет", !/^- вики:/m.test(template));
+	check("пояснение называет локальную вику отдельно", template.includes("локальная **вика выводов**"));
 }

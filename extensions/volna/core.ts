@@ -603,7 +603,7 @@ function taskContextBlock(active: ActiveTask, volnaDir: string): string {
  */
 function profileBlock(volnaDir: string): string {
 	const profile = readProfile(volnaDir);
-	const keys = ["тесты", "сборка", "запуск", "визуальная проверка", "эталон", "трекер", "вики", "kb"];
+	const keys = ["тесты", "сборка", "запуск", "визуальная проверка", "эталон", "трекер", "внешняя вика", "kb"];
 	const filled = keys.filter((key) => profileValue(profile, key)).map((key) => `${key}: ${profileValue(profile, key)}`);
 	const unanswered = keys.filter((key) => profile[key] && !profileValue(profile, key));
 	if (!filled.length && !unanswered.length) return "";

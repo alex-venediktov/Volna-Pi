@@ -319,7 +319,7 @@ export async function doctorReport(cwd: string, exec: ExecLike): Promise<string>
 	lines.push(`- рабочее дерево: ${root}`);
 
 	const profile = readProfile(volnaDir);
-	const keys = ["тесты", "сборка", "запуск", "визуальная проверка", "эталон", "трекер", "вики", "kb", "модель адвоката", "скриншот модели"];
+	const keys = ["тесты", "сборка", "запуск", "визуальная проверка", "эталон", "трекер", "внешняя вика", "kb", "модель адвоката", "скриншот модели"];
 	const unanswered = keys.filter((key) => profile[key] && !profileValue(profile, key));
 	const missing = keys.filter((key) => !profile[key]);
 	lines.push(
