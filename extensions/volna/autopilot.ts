@@ -300,6 +300,8 @@ export interface PartRunLog {
 	toolCalls: number;
 	/** Статусы, поменянные не у своей части: закрытие, поставленное не туда. */
 	stray: StrayChange[];
+	/** Замечания журнала после остановки: пусто, если он сведён. */
+	journalLeft: string[];
 	/** Чем наблюдение прервало ход, если прервало. */
 	stoppedBy: string;
 	/** Файлы, тронутые за объявленной границей части. */
@@ -358,6 +360,19 @@ export interface AutopilotOptions {
  * очередью драйвера это сходится потому, что часть помечена взятой строкой выше.
  */
 const ENTER_PART = "/volna:task";
+
+/**
+ * Чем просить прерванную сессию свести журнал. Прерванный ход оставляет «Состояние» отставшим от
+ * лога: сессия успела дописать итерацию, но до перезаписи не дошла. Следующий прогон на такой
+ * журнал не запускается, и разгребать это человеку не за что - ход прервал драйвер.
+ *
+ * Сводит та же сессия, а не драйвер: она знает, что успела сделать, а драйвер видит только лог.
+ */
+const SYNC_STATE =
+	"Ход прерван снаружи. Работу не продолжай и часть не закрывай: перепиши секцию «Состояние» под то, что уже сделано (volna_journal action=state), одной строкой скажи, на чём тебя прервали, и остановись.";
+
+/** Сколько вызовов отпускается на сведение журнала: это запись, а не работа. */
+const SYNC_CALLS = 20;
 
 /** Чем просить продолжить часть, которая осела незакрытой без вопроса и без обрыва. */
 const CONTINUE =
@@ -458,12 +473,16 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 			notes: [],
 			toolCalls: 0,
 			stray: [],
+			journalLeft: [],
 			stoppedBy: "",
 			strayPaths: [],
 			lastText: "",
 			stderr: "",
 		};
 
+		// На сводящем ходу граница уже нарушена, и проверять её снова значит оборвать сведение на
+		// первом же тике. Остаётся короткая страховка от заходов на новый круг работы.
+		let syncing = false;
 		const session = startRpcSession({
 			cwd: options.cwd,
 			args: options.args,
@@ -476,6 +495,7 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 			// Наблюдение по ходу, а не после: сессия, которая закрыла свою часть и пошла дальше,
 			// до разбора итога не доходит - управление возвращается только на оседании.
 			watch: ({ toolCalls, elapsedMs }) => {
+				if (syncing) return toolCalls > SYNC_CALLS ? "сведение журнала затянулось" : null;
 				const moved = strayChanges(before, partsNow(volnaDir, task), part.number);
 				if (moved.length) return `тронута часть ${moved[0].number}`;
 				if (options.maxToolCalls && toolCalls > options.maxToolCalls) return `вызовов инструментов больше ${options.maxToolCalls}`;
@@ -494,6 +514,13 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 				if (log.closed) break;
 				text = CONTINUE;
 			}
+			// Ход оборвал драйвер - ему и отвечать за журнал. Сессия жива, знает, что успела, и
+			// сводит «Состояние» сама; иначе следующий прогон встанет на отставшем журнале, а
+			// разгребать это будет человек, который ничего не прерывал.
+			if ((log.stoppedBy || stop === "молчание") && session.alive()) {
+				syncing = true;
+				await session.prompt(SYNC_STATE);
+			}
 		} finally {
 			await session.close();
 		}
@@ -503,6 +530,12 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 		// что закрытие поставлено не туда, и дальше идти нельзя - следующая часть уже пропущена.
 		log.stray = strayChanges(before, partsNow(volnaDir, task), part.number);
 		log.strayPaths = strayFiles(await touchedSince(options.cwd, gitBefore), brief?.touches ?? "");
+		// Сведён ли журнал после остановки: отставший оставлять нельзя молча, на нём встанет
+		// следующий прогон, и человек получит отказ вместо причины.
+		const fresh = loadTask(volnaDir, task);
+		log.journalLeft = fresh
+			? journalIssues({ text: fresh.text, stateSection: fresh.stateSection, logText: fresh.logText, fm: fresh.fm })
+			: [];
 		// Закрытая задача обрывает флоу целиком: активной задачи больше нет, гнать нечего, и
 		// остаток частей записан итогом, которого никто не проверял.
 		if (readState(volnaDir).active !== task && !stop) stop = "задача закрыта";
@@ -518,6 +551,9 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 		if (log.closed && !stop) continue;
 		report.stop = stop ?? "часть не закрыта";
 		report.detail = stopDetail(report.stop, log);
+		if (log.journalLeft.length) {
+			report.detail += ` Журнал остался несведённым: ${log.journalLeft.join("; ")}. Чек-пойнт - /volna:checkpoint.`;
+		}
 		return report;
 	}
 
@@ -549,6 +585,7 @@ export async function runTaskCapture(options: TaskCaptureOptions): Promise<PartR
 		notes: [],
 		toolCalls: 0,
 		stray: [],
+		journalLeft: [],
 		stoppedBy: "",
 		strayPaths: [],
 		lastText: "",
