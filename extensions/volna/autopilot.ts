@@ -270,6 +270,13 @@ function base(path: string): string {
 	return path.split("/").pop() ?? path;
 }
 
+/** Разошлись ли слои журнала: «Состояние» отстало от лога. */
+export function journalStale(volnaDir: string, task: string): boolean {
+	const fresh = loadTask(volnaDir, task);
+	if (!fresh) return false;
+	return journalIssues({ text: fresh.text, stateSection: fresh.stateSection, logText: fresh.logText, fm: fresh.fm }).length > 0;
+}
+
 /** Закрыта ли часть по журналу на диске. Часть исчезла из списка - считается незакрытой. */
 export function partClosed(volnaDir: string, task: string, number: number): boolean {
 	const part = partsNow(volnaDir, task).find((item) => item.number === number);
@@ -526,10 +533,10 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 				if (log.closed) break;
 				text = CONTINUE;
 			}
-			// Ход оборвал драйвер - ему и отвечать за журнал. Сессия жива, знает, что успела, и
-			// сводит «Состояние» сама; иначе следующий прогон встанет на отставшем журнале, а
-			// разгребать это будет человек, который ничего не прерывал.
-			if ((log.stoppedBy || stop === "молчание") && session.alive()) {
+			// Журнал сводится по факту расхождения, а не по причине остановки: отставшее «Состояние»
+			// одинаково мешает и после прерывания, и после обычного оседания. Сводит сессия, пока
+			// жива: она знает, что успела, а драйвер видит только лог.
+			if (session.alive() && journalStale(volnaDir, task)) {
 				syncing = true;
 				await session.prompt(SYNC_STATE);
 			}
