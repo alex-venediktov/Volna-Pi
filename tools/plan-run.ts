@@ -24,6 +24,7 @@ interface Args {
 	nudges: number;
 	continues: number;
 	until: number;
+	skip: number[];
 	model: string;
 	quiet: boolean;
 	dryRun: boolean;
@@ -45,6 +46,7 @@ const USAGE = [
 	"  --nudges <N>        сколько раз будить молчащую сессию, прежде чем считать ход потерянным (2)",
 	"  --continues <N>     сколько раз просить продолжить часть, осевшую незакрытой (1)",
 	"  --until <номер>     дальше этой части не идти",
+	"  --skip <N,M>        не гнать эти части: они ждут человека, а не работы",
 	"  --max-calls <N>     страховочный потолок вызовов на часть, 0 снимает предел (400)",
 	"  --part-minutes <N>  потолок времени на часть, 0 снимает предел (90)",
 	"  --model <id>        модель сессий прогона (по умолчанию модель pi)",
@@ -66,6 +68,7 @@ function parseArgs(argv: string[]): Args {
 		nudges: 2,
 		continues: 1,
 		until: 0,
+		skip: [],
 		model: "",
 		quiet: false,
 		dryRun: false,
@@ -92,6 +95,7 @@ function parseArgs(argv: string[]): Args {
 		else if (key === "--nudges") (args.nudges = Number(value)), i++;
 		else if (key === "--continues") (args.continues = Number(value)), i++;
 		else if (key === "--until") (args.until = Number(value)), i++;
+		else if (key === "--skip") (args.skip = String(value ?? "").split(",").map(Number).filter(Number.isInteger)), i++;
 		else throw new Error(`Неизвестный ключ: ${key}`);
 	}
 	if (!Number.isFinite(args.idleMinutes) || args.idleMinutes <= 0) throw new Error("--idle ждёт число минут больше нуля");
@@ -169,7 +173,11 @@ async function main(): Promise<number> {
 		return 3;
 	}
 	const queue = readiness.parts.filter(
-		(part) => part.status !== "сделано" && part.status !== "снята" && (!args.until || part.number <= args.until),
+		(part) =>
+			part.status !== "сделано" &&
+			part.status !== "снята" &&
+			!args.skip.includes(part.number) &&
+			(!args.until || part.number <= args.until),
 	);
 	say(`Задача ${readiness.task}, незакрытых частей ${readiness.left}, в прогоне ${queue.length}.`);
 	for (const part of queue) say(`  ${part.number}. ${part.title} - ${part.status}`);
@@ -211,6 +219,7 @@ async function main(): Promise<number> {
 		maxToolCalls: args.maxToolCalls,
 		partMs: Math.round(args.partMinutes * 60 * 1000),
 		until: args.until,
+		skip: args.skip,
 		args: args.model ? ["--model", args.model] : [],
 		signal: canceller.signal,
 		onPart: (part: Part, index: number, total: number) => {

@@ -360,6 +360,11 @@ export interface AutopilotOptions {
 	maxToolCalls?: number;
 	/** Потолок времени на одну часть в миллисекундах. Ноль снимает предел. */
 	partMs?: number;
+	/**
+	 * Части, которые прогонять не надо: они ждут человека, а не работы. Без этого прогон
+	 * упирается в такую часть каждым запуском и до остальных не доходит.
+	 */
+	skip?: number[];
 	/** Дальше этой части не идти: место, где человек знает про ручную проверку заранее. */
 	until?: number;
 	args?: string[];
@@ -465,7 +470,10 @@ function absorb(log: PartRunLog, turn: RpcTurnResult, signal?: AbortSignal): Sto
 export async function runAutopilot(options: AutopilotOptions): Promise<AutopilotReport> {
 	const report: AutopilotReport = { stop: "все части закрыты", detail: "", runs: [], closed: [] };
 	const { volnaDir, task } = options.readiness;
-	const queue = unfinishedParts(options.readiness.parts).filter((part) => !options.until || part.number <= options.until);
+	const skip = new Set(options.skip ?? []);
+	const queue = unfinishedParts(options.readiness.parts)
+		.filter((part) => !skip.has(part.number))
+		.filter((part) => !options.until || part.number <= options.until);
 
 	for (const [index, part] of queue.entries()) {
 		if (options.signal?.aborted) {
