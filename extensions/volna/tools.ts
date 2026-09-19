@@ -15,7 +15,7 @@ import type { ExecLike } from "./changes.ts";
 import { branchFor, commitChanges, deliverySettings, ensureBranch, gitState, pushBranch } from "./git.ts";
 import { enterStage, finishTask, intake, resumeTask, skipStage, statusReport } from "./core.ts";
 import { initVolna } from "./init.ts";
-import { appendLogSection, journalIssues, stamp, writeStateSection } from "./journal.ts";
+import { appendLogSection, journalIssues, lastSectionOf, stamp, writeStateSection } from "./journal.ts";
 import { currentPart, partBriefForm, partsFromState, takePart } from "./parts.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { displayPath, loadActive, profileValue, readProfile, taskField, updateFrontmatter } from "./state.ts";
@@ -762,14 +762,6 @@ async function undeliveredWork(exec: ExecLike, volnaDir: string, signal?: AbortS
 	if (state.dirty.length) parts.push(`незакоммиченных файлов ${state.dirty.length}`);
 	if (delivery.mode === "commit+push" && state.ahead) parts.push(`не отправлено коммитов ${state.ahead}`);
 	return parts.length ? `работа не доставлена: ${parts.join(", ")} - доставку делает этап deliver` : "";
-}
-
-/** Последняя секция этапа из лога: адвокату нужны критерии, а не весь лог. */
-function lastSectionOf(logText: string, stage: string): string {
-	const re = new RegExp(`^##\\s+${stage}\\s+·\\s+итерация[^\\n]*\\n([\\s\\S]*?)(?=^##\\s|\\s*$)`, "gmi");
-	let last = "";
-	for (const match of logText.matchAll(re)) last = match[0].trim();
-	return last;
 }
 
 /** Пути «Волны» строкой: используется в сообщениях команд. */

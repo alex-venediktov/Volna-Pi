@@ -201,6 +201,26 @@ export function logSinceClose(logText: string): string {
 	return last?.index === undefined ? logText : logText.slice(last.index);
 }
 
+/**
+ * Секции одного этапа из лога, в порядке появления.
+ *
+ * Лог целиком наружу не отдаётся никогда: это история всех итераций вместе с отвергнутыми
+ * подходами, и подпроцессу она вытесняет из контекста его собственную работу. Отдаются названные
+ * секции - адвокату критерии из `spec` и `plan`, выводу по задаче итоги частей из `close`.
+ */
+export function sectionsOf(logText: string, stage: string): string[] {
+	// Секция кончается следующим заголовком либо концом текста. Конец текста проверяется через
+	// «дальше ничего нет», а не через `$`: при флаге `m` тот срабатывает на конце первой же строки,
+	// и от секции остаётся один заголовок.
+	const re = new RegExp(`^##\\s+${stage}\\s+·\\s+итерация[^\\n]*\\n[\\s\\S]*?(?=^##\\s|(?![\\s\\S]))`, "gmi");
+	return [...logText.matchAll(re)].map((match) => match[0].trim());
+}
+
+/** Последняя секция этапа из лога. */
+export function lastSectionOf(logText: string, stage: string): string {
+	return sectionsOf(logText, stage).at(-1) ?? "";
+}
+
 /** Этапы, по которым в логе есть запись, в порядке появления. */
 export function stagesInLog(logText: string): string[] {
 	const out: string[] = [];
@@ -278,6 +298,13 @@ export function writeStateSection(
 	// Список частей переносится сам, когда новый не передали: он источник правды об остатке, а
 	// секция переписывается целиком - забытый в одном вызове список стёр бы остаток задачи.
 	const parts = fields.parts ?? renderPartsText(partsFromState(body));
+	// Непрочитываемый список рвёт ту же нить, что и забытый, только незаметнее: подпункт на месте,
+	// а частей в нём никто не находит. Список строками, по строке на часть - форма, а не украшение.
+	if (parts.trim() && !parsePartsText(parts).length) {
+		throw new Error(
+			`Список частей не читается: ожидается по строке на часть («1. название - не начата»), пришло ${JSON.stringify(parts.slice(0, 120))}. Прежний список сохранён.`,
+		);
+	}
 	const next = `${head ? `${head}\n\n` : "\n"}${renderStateSection({ ...fields, parts: parts || undefined }, at)}`;
 	const patch: Frontmatter = applyPartsFields({ ...fm, updated: at }, parsePartsText(parts));
 	if (options.logText !== undefined) patch.state_sync = logMarker(options.logText);
