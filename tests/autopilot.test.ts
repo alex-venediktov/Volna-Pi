@@ -285,6 +285,8 @@ async function loop(): Promise<void> {
 	check("закрытие чужой части останавливает прогон", report.stop === "тронута чужая часть", report.stop);
 	check("в причине названа тронутая часть", report.detail.includes("часть 3"), report.detail);
 	check("чужая правка попала в отчёт части", report.runs[0]?.stray.length === 1, JSON.stringify(report.runs[0]?.stray));
+	// Находки независимы: прерванный ход не должен затыкать закрытие без приёмки
+	check("закрытие без человека старше прерывания", report.runs[0]?.closedWithoutHuman === false, String(report.runs[0]?.closedWithoutHuman));
 	check("на следующую часть прогон не пошёл", report.runs.length === 1, String(report.runs.length));
 }
 

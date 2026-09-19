@@ -319,6 +319,8 @@ export interface PartRunLog {
 	toolCalls: number;
 	/** Статусы, поменянные не у своей части: закрытие, поставленное не туда. */
 	stray: StrayChange[];
+	/** Часть закрыта сессией, хотя её критерий закрывает человек. */
+	closedWithoutHuman: boolean;
 	/** Замечания журнала после остановки: пусто, если он сведён. */
 	journalLeft: string[];
 	/** Чем наблюдение прервало ход, если прервало. */
@@ -492,7 +494,8 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 			notes: [],
 			toolCalls: 0,
 			stray: [],
-			journalLeft: [],
+			closedWithoutHuman: false,
+		journalLeft: [],
 			stoppedBy: "",
 			strayPaths: [],
 			lastText: "",
@@ -555,14 +558,20 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 		log.journalLeft = fresh
 			? journalIssues({ text: fresh.text, stateSection: fresh.stateSection, logText: fresh.logText, fm: fresh.fm })
 			: [];
-		// Закрытая задача обрывает флоу целиком: активной задачи больше нет, гнать нечего, и
-		// остаток частей записан итогом, которого никто не проверял.
-		if (readState(volnaDir).active !== task && !stop) stop = "задача закрыта";
-		if (log.stray.length && !stop) stop = "тронута чужая часть";
-		if (log.strayPaths.length && !stop) stop = "работа за границей части";
 		// Критерий, который закрывает человек, закрытый сессией без единого вопроса - закрытие в
 		// обход приёмки. Доказать делом машина не может, а поймать обход процедуры - может.
-		if (log.closed && !stop && needsHuman(brief?.criterion ?? "") && !log.asks.length) stop = "закрытие без человека";
+		log.closedWithoutHuman = log.closed && needsHuman(brief?.criterion ?? "") && !log.asks.length;
+		// Находки независимы, а причина остановки одна, и берётся она по старшинству, а не по
+		// порядку проверок. Прежде находки затыкали друг друга: прерванный ход перебивал закрытие
+		// без человека, и часть оставалась записанной сделанной без своей приёмки.
+		const findings: Array<[boolean, StopReason]> = [
+			[readState(volnaDir).active !== task, "задача закрыта"],
+			[log.closedWithoutHuman, "закрытие без человека"],
+			[log.stray.length > 0, "тронута чужая часть"],
+			[log.strayPaths.length > 0, "работа за границей части"],
+		];
+		const found = findings.find(([hit]) => hit);
+		if (found) stop = found[1];
 		if (log.closed) report.closed.push(part.number);
 		report.runs.push(log);
 		options.onPartDone?.(log);
@@ -604,6 +613,7 @@ export async function runTaskCapture(options: TaskCaptureOptions): Promise<PartR
 		notes: [],
 		toolCalls: 0,
 		stray: [],
+		closedWithoutHuman: false,
 		journalLeft: [],
 		stoppedBy: "",
 		strayPaths: [],

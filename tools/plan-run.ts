@@ -231,6 +231,7 @@ async function main(): Promise<number> {
 				log.asks.length ? `вопросов человеку ${log.asks.length}` : "",
 				log.stray.length ? `тронуто чужих частей ${log.stray.length}` : "",
 				log.strayPaths.length ? `файлов за границей ${log.strayPaths.length}` : "",
+				log.closedWithoutHuman ? "закрыта без приёмки человеком" : "",
 			].filter(Boolean);
 			say(`  итог части ${log.part}: ${marks.join(", ")}`);
 		},
