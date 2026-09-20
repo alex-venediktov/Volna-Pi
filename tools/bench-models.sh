@@ -18,10 +18,17 @@ part=${3:?нужен номер части}
 shift 3
 [ $# -ge 1 ] || { echo "нужна хотя бы одна модель" >&2; exit 2; }
 
+# Пути приводятся к смешанному виду (D:/...): node понимает его, git-bash тоже, а MSYS-путь вида
+# /d/... node на Windows читает как D:\d\... - относительным от корня диска.
+win() { cygpath -m "$1" 2>/dev/null || echo "$1"; }
+
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+project=$(win "$project")
 stamp=$(date +%Y%m%d-%H%M%S)
 out="$here/bench-$stamp"
 mkdir -p "$out"
+out=$(win "$out")
+here=$(win "$here")
 
 echo "стенд: часть $part от $base, моделей $#" | tee "$out/README.txt"
 
