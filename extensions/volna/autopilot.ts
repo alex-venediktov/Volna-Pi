@@ -442,11 +442,22 @@ interface GitSnapshot {
 /** Строки вывода git. Своя обёртка, потому что драйвер идёт обычным node, без API pi. */
 async function gitLines(cwd: string, args: string[]): Promise<string[]> {
 	try {
-		const { stdout } = await runFile("git", ["-C", cwd, ...args], { maxBuffer: 16 * 1024 * 1024 });
+		// core.quotepath=false - чтобы нелатинские имена приходили как есть, а не в октальных
+		// последовательностях: `.volna/wiki/process/INDEX--\321\201...` не опознаётся как служебный
+		// файл «Волны», и служебная правка начинает выглядеть работой за границей части.
+		const { stdout } = await runFile("git", ["-c", "core.quotepath=false", "-C", cwd, ...args], {
+			maxBuffer: 16 * 1024 * 1024,
+		});
 		return stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 	} catch {
 		return [];
 	}
+}
+
+/** Путь из вывода git: кавычки вокруг имени со спецсимволами снимаются, само имя остаётся. */
+export function unquotePath(path: string): string {
+	const text = String(path ?? "").trim();
+	return text.startsWith('"') && text.endsWith('"') && text.length > 1 ? text.slice(1, -1) : text;
 }
 
 export async function gitSnapshot(cwd: string): Promise<GitSnapshot> {
@@ -457,7 +468,7 @@ export async function gitSnapshot(cwd: string): Promise<GitSnapshot> {
 
 /** Путь из строки `git status --porcelain`: два знака состояния, дальше имя. */
 function statusPath(line: string): string {
-	return line.replace(/^..\s*/, "").replace(/^.*-> /, "").replace(/^"|"$/g, "");
+	return unquotePath(line.replace(/^..\s*/, "").replace(/^.*-> /, ""));
 }
 
 /**
@@ -466,7 +477,9 @@ function statusPath(line: string): string {
  */
 export async function touchedSince(cwd: string, snapshot: GitSnapshot): Promise<string[]> {
 	if (!snapshot.head) return [];
-	const committed = await gitLines(cwd, ["diff", "--name-only", snapshot.head]);
+	// Имена отсюда тоже бывают в кавычках: `git diff` берёт их в кавычки на тех же основаниях, что и
+	// `git status`, а разбора строки состояния здесь нет - снимать их надо отдельно.
+	const committed = (await gitLines(cwd, ["diff", "--name-only", snapshot.head])).map(unquotePath);
 	const now = (await gitLines(cwd, ["status", "--porcelain"])).map(statusPath);
 	const touched = new Set<string>(committed);
 	for (const file of now) if (!snapshot.dirty.has(file)) touched.add(file);

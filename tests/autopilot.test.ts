@@ -12,6 +12,7 @@ import {
 	partClosed,
 	partPrompt,
 	partsNow,
+	unquotePath,
 	profileWarnings,
 	runAutopilot,
 	strayChanges,
@@ -158,6 +159,13 @@ function verdict(): void {
 	check("часть в работе не закрыта", !partClosed(volnaDir, task, 2));
 	check("снятая часть закрыта: «снята» ставит только полное закрытие задачи", partClosed(volnaDir, task, 3));
 	check("части вне списка закрытыми не считаются", !partClosed(volnaDir, task, 9));
+
+	// Нелатинские имена git отдаёт в кавычках и октальных последовательностях. Кавычка перед именем
+	// ломает узнавание префикса `.volna/`, и служебная правка флоу начинает выглядеть работой за
+	// границей части - прогон останавливается на ровном месте.
+	check("кавычки вокруг имени снимаются", unquotePath('".volna/wiki/process/INDEX--сопровождение.md"') === ".volna/wiki/process/INDEX--сопровождение.md");
+	check("обычное имя не трогается", unquotePath("game/sim/combat/weapon_slot.gd") === "game/sim/combat/weapon_slot.gd");
+	check("одинокая кавычка именем не считается", unquotePath('"') === '"');
 
 	// След, которого рукой не поставишь: секцию close пишет только `finishTask`.
 	appendLogSection(volnaDir, task, {
