@@ -29,8 +29,8 @@ export async function run(): Promise<void> {
 
 	initVolna(dir);
 	const volnaDir = join(dir, ".volna");
-	// Диффы и журнал проверок лежат в системном temp и песочницу переживают: прошлый прогон теста
-	// оставил бы «всё уже проверено», и порции нечего было бы брать.
+	// Журнал проверок переживает песочницу: прошлый прогон теста оставил бы «всё уже проверено», и
+	// порции нечего было бы брать.
 	dropDiffs(volnaDir, "test-task");
 
 	const diff = await collectDiff(exec, volnaDir, "test-task", "HEAD");
@@ -41,7 +41,10 @@ export async function run(): Promise<void> {
 	check("бинарный файл не вставлен", body.includes("бинарный файл"), "blob.bin");
 	check("git найден", diff.repo);
 	check("сводка изменений есть", diff.stat.includes("list.js"));
-	check("дифф лежит вне проекта, в системном temp", !diff.path.includes(".volna") && diff.path.includes("volna-advocate"), diff.path);
+	// Дифф лежит внутри проекта: путь через домашний каталог на Windows бывает кириллическим, и
+	// модель его не воспроизводит - уходит искать файл по диску.
+	check("дифф лежит внутри .volna", diff.path.includes(".volna") && diff.path.includes("advocate"), diff.path);
+	check("путь к диффу короткий и относимый к проекту", diff.path.startsWith(volnaDir), diff.path);
 	check("дифф возвращается и текстом, не только файлом", diff.text.includes("if (!items.length)"));
 	batchesKeepWhatWasChecked(volnaDir, diff.text, diff.base);
 

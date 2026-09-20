@@ -13,7 +13,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { Usage } from "@earendil-works/pi-ai";
 import {
 	type Batch,
@@ -186,7 +186,9 @@ export async function runAdvocate(
 	);
 	if (input.model) args.push("--model", input.model);
 
-	const batchPath = join(dir, `batch-${batch.number}.diff`);
+	// Путь относительный, от корня проекта: абсолютный на Windows проходит через домашний каталог,
+	// и модель его не воспроизводит - см. `paths.ts:advocateDiffDir`.
+	const batchPath = relative(workspaceRoot(input.volnaDir), join(dir, `batch-${batch.number}.diff`)).split("\\").join("/");
 	const reviewedBefore = ledger.reviewed.map((entry) => entry.file);
 
 	const prompt = [

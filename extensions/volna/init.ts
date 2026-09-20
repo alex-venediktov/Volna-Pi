@@ -15,7 +15,7 @@ import { packageRoot, VOLNA_DIR_NAME, volnaPaths } from "./paths.ts";
 import { stamp } from "./journal.ts";
 import { initWiki } from "./wiki-ops.ts";
 
-export const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/"];
+export const IGNORE_RULES = [".volna/state.json", ".volna/journal/", ".volna/visual/", ".volna/advocate/"];
 
 /**
  * Правила, прячущие весь .volna. Коммитятся профиль проекта и вика выводов, поэтому такое правило
