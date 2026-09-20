@@ -55,10 +55,12 @@ for model in "$@"; do
 		cp -r "$project/game/.godot" "$tree/game/.godot" 2>/dev/null || true
 	fi
 
+	# --no-capture: вывод по задаче - отдельная сессия на закрытой очереди, и платит за неё только
+	# та модель, что дошла до конца. В сравнении одной части ей места нет.
 	log="$out/$slug.log"
 	jsonl="$out/$slug.jsonl"
 	node --experimental-strip-types "$here/tools/plan-run.ts" \
-		--dir "$tree" --until "$part" --model "$model" --transcript "$jsonl" >"$log" 2>&1
+		--dir "$tree" --until "$part" --model "$model" --no-capture --transcript "$jsonl" >"$log" 2>&1
 	node "$here/tools/bench-metrics.mjs" "$log" "$jsonl" "$model" > "$out/$slug.json"
 	cat "$out/$slug.json"
 
