@@ -7,6 +7,7 @@ import { initVolna } from "../extensions/volna/init.ts";
 import { appendLogSection, writeStateSection } from "../extensions/volna/journal.ts";
 import {
 	currentPart,
+	partArgument,
 	markPart,
 	partBrief,
 	partBriefForm,
@@ -36,6 +37,15 @@ export async function run(): Promise<void> {
 	check("список собирается обратно", renderPartsText(parsed) === LIST, renderPartsText(parsed));
 	check("часть без статуса считается не начатой", parsePartsText("1. вторая половина")[0].status === "не начата");
 
+	// Разбор аргумента команды: ошибка здесь не видна глазом - вместо продолжения части заводится
+	// новая задача с названием из аргумента, и находится это только живым прогоном.
+	check("голое число - номер части", partArgument("9") === 9);
+	check("номер с пробелами вокруг читается", partArgument("  2  ") === 2);
+	check("текст задания номером не считается", partArgument("Переписать хранение шагов") === undefined);
+	check("пустой аргумент номером не считается", partArgument("") === undefined);
+	check("буква d номером не считается", partArgument("d") === undefined, String(partArgument("d")));
+	check("путь к файлу номером не считается", partArgument("docs/tasks/9.md") === undefined);
+	check("задание, начатое цифрой, остаётся заданием", partArgument("9 частей переписать") === undefined);
 	const dir = sandbox("parts");
 	initVolna(dir);
 	intake(dir, { assignment: "Перевести хранение шагов на новую схему и починить приём формы" });

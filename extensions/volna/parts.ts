@@ -57,6 +57,18 @@ export function renderPartsText(parts: Part[]): string {
 }
 
 /** Часть в работе, а если такой нет - первая не начатая. Остатка нет - undefined. */
+/**
+ * Номер части из аргумента команды. Голое число - номер, всё прочее - задание: постановки из одних
+ * цифр не бывает, а назвать часть номером внешнему прогону больше нечем.
+ *
+ * Живёт в ядре, а не в обработчике команды: в `commands.ts` до этого разбора тестом не добраться, а
+ * ошибка в нём не видна - вместо продолжения части заводится новая задача с названием из аргумента.
+ * Класс символов выписан перечнем: короткая запись через обратный слэш переживает не всякую правку.
+ */
+export function partArgument(args: string): number | undefined {
+	const text = args.trim();
+	return /^[0-9]+$/.test(text) ? Number(text) : undefined;
+}
 export function currentPart(parts: Part[]): Part | undefined {
 	return parts.find((part) => part.status === "в работе") ?? parts.find((part) => part.status === "не начата");
 }

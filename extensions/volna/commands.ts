@@ -20,6 +20,7 @@ import { deliverySettings, gitState } from "./git.ts";
 import { blanketIgnoreRule, blanketIgnoreWarning, initVolna } from "./init.ts";
 import { journalIssues, stamp } from "./journal.ts";
 import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
+import { partArgument } from "./parts.ts";
 import { loadActive, loadTask, profileValue, readProfile, readState, taskField, writeState } from "./state.ts";
 import { partsMap, partsRunInstructions, partsRunReadiness } from "./runner.ts";
 import { STAGES, STAGE_NAMES } from "./stages.ts";
@@ -140,9 +141,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 		getArgumentCompletions: (prefix) => fileCompletions(prefix),
 		handler: async (args, ctx) => {
 			const assignment = args.trim();
-			// Голое число - номер части, а не задание: задания из одних цифр не бывает, а прогон частей
-			// не подряд иначе некому назвать.
-			const part = /^d+$/.test(assignment) ? Number(assignment) : undefined;
+			const part = partArgument(assignment);
 			const result =
 				assignment && part === undefined
 					? intake(ctx.cwd, { assignment })
