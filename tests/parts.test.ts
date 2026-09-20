@@ -109,6 +109,7 @@ export async function run(): Promise<void> {
 
 	await baseMovesWithPart();
 	await namedPartWins();
+	await closeFollowsEnteredPart();
 	partStatementsLiveInTheLog();
 }
 
@@ -221,6 +222,36 @@ async function namedPartWins(): Promise<void> {
 	check("несуществующая часть названа ошибкой, а не молчанием", !missing.ok && missing.message.includes("9"), missing.message.slice(0, 80));
 }
 
+/**
+ * Закрывается та часть, в которую вошли, а не первая начатая. Когда начатых несколько - а так
+ * бывает у всякой части, отложенной до человека, - выбор по списку закрывает чужую часть под итогом
+ * этой: работа уезжает в журнал не под тем номером, а отложенная часть пропадает из очереди как
+ * сделанная.
+ */
+async function closeFollowsEnteredPart(): Promise<void> {
+	const dir = sandbox("parts-close-named");
+	initVolna(dir);
+	intake(dir, { assignment: "Часть отложена до человека, работа идёт над следующей" });
+	const journalPath = loadActive(dir)!.journalPath;
+	writeStateSection(journalPath, {
+		goal: "закрытие не первой начатой",
+		parts: "1. замер на устройстве - в работе\n2. патрули - не начата",
+		done: "часть 1 ждёт человека",
+		next: "часть 2",
+	});
+
+	await resumeTask(dir, undefined, 2);
+	const closed = finishTask(dir, { summary: "патрули и посты готовы", hours: "2", part: true });
+	check("закрытие прошло", closed.ok, closed.message.slice(0, 60));
+	const after = partsFromState(loadActive(dir)!.stateSection);
+	check("закрылась та часть, в которую вошли", after[1].status === "сделано", `${after[1].number}: ${after[1].status}`);
+	check("отложенная часть осталась в работе", after[0].status === "в работе", `${after[0].number}: ${after[0].status}`);
+	check(
+		"в логе названа закрытой та же часть",
+		loadActive(dir)!.logText.includes("часть 2/2 закрыта"),
+		loadActive(dir)!.logText.slice(-200),
+	);
+}
 /** Закрытие части сдвигает базу адвоката: следующая часть ставит свою точку начала на implement. */
 async function baseMovesWithPart(): Promise<void> {
 	const dir = sandbox("parts-base", { git: false });

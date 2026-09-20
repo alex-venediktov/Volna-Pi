@@ -181,6 +181,11 @@ export async function resumeTask(cwd: string, exec?: ExecLike, part?: number): P
 	}
 
 	if (next.status === "не начата") writeParts(active.journalPath, markPart(parts, next.number, "в работе"));
+	// Часть, в которую вошли, записывается явно. Поле `part` шапки для этого не годится: оно
+	// производная от списка («первая начатая»), и когда начатых несколько - а так бывает у всякой
+	// части, отложенной до человека, - оно показывает не ту. Закрытие иначе гадает тем же способом и
+	// закрывает чужую часть под итогом этой.
+	updateFrontmatter(active.journalPath, { part_open: String(next.number) });
 	const result = await enterStage(cwd, "spec", { reason: `часть ${next.number}/${parts.length}: ${next.title}`, exec });
 	if (!result.ok) return result;
 	return {
@@ -386,7 +391,10 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 	const warnings: string[] = [];
 
 	if (options.part) {
-		const current = currentPart(parts);
+		// Закрывается та часть, в которую вошли, а не первая начатая: см. `resumeTask`.
+		const opened = Number(taskField(active.fm, "part_open"));
+		const named = Number.isFinite(opened) ? parts.find((item) => item.number === opened) : undefined;
+		const current = named && named.status !== "сделано" && named.status !== "снята" ? named : currentPart(parts);
 		if (!current) {
 			return {
 				ok: false,
@@ -431,6 +439,7 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 			stage: "close",
 			stages_done: [...new Set([...taskList(active.fm, "stages_done"), "close"])],
 			part_base: "",
+			part_open: "",
 			updated: at,
 		});
 
@@ -493,6 +502,7 @@ export function finishTask(cwd: string, options: FinishOptions): FlowResult & { 
 	updateFrontmatter(active.journalPath, {
 		stage: "close",
 		stages_done: [...new Set([...taskList(active.fm, "stages_done"), "close"])],
+		part_open: "",
 		updated: at,
 	});
 	writeState(volnaDir, { active: null, updated: at });
