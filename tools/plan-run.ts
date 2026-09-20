@@ -15,6 +15,8 @@ import { appendFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { type AutopilotOptions, autopilotReadiness, runAutopilot, runTaskCapture } from "../extensions/volna/autopilot.ts";
 import type { Part } from "../extensions/volna/parts.ts";
+import type { Usage } from "@earendil-works/pi-ai";
+import { emptyUsage } from "../extensions/volna/piagent.ts";
 import type { RpcEvent } from "../extensions/volna/rpc.ts";
 
 interface Args {
@@ -129,6 +131,40 @@ function messageText(message: any): string {
  * Строка хода работы. Показывается и то, что драйвер подал, и то, что сессия сказала: по одним
  * именам инструментов не видно, о чём вообще шёл разговор.
  */
+/**
+ * Цена части одной строкой: расход модели и скорость.
+ *
+ * Скорость считается по стене, а не по времени генерации: простой между ходами, чтение файлов и
+ * ожидание инструментов - такая же цена части. Число получается меньше «токенов в секунду» из
+ * бенчмарков движка и означает другое: сколько модель выдаёт на реальной работе.
+ *
+ * Кэш назван отдельно от свежего ввода: на длинной части он составляет почти весь ввод, и общая
+ * сумма без него выглядит пугающе, а платится за неё иначе.
+ */
+function spend(log: { usage: Usage; elapsedMs: number; toolCalls: number }): string {
+	const seconds = Math.max(1, Math.round(log.elapsedMs / 1000));
+	const speed = (log.usage.output / seconds).toFixed(1);
+	const parts = [
+		`время ${human(seconds)}`,
+		`выдано ${thousands(log.usage.output)} ток (${speed} ток/с)`,
+		`ввод ${thousands(log.usage.input)} ток`,
+		log.usage.cacheRead ? `из кэша ${thousands(log.usage.cacheRead)} ток` : "",
+		log.toolCalls ? `на вызов ${Math.round(log.usage.output / log.toolCalls)} ток` : "",
+	];
+	return parts.filter(Boolean).join(", ");
+}
+
+function thousands(value: number): string {
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+	return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(Math.round(value));
+}
+
+function human(seconds: number): string {
+	if (seconds < 60) return `${seconds}с`;
+	const minutes = Math.round(seconds / 60);
+	return minutes < 60 ? `${minutes}м` : `${Math.floor(minutes / 60)}ч ${minutes % 60}м`;
+}
+
 function progressLine(event: RpcEvent): string | null {
 	const e = event as any;
 	if (event.type === "driver:prompt") return `  >> ${oneLine(String(e.message ?? ""), 200)}`;
@@ -209,6 +245,7 @@ async function main(): Promise<number> {
 		canceller.abort();
 	});
 
+	const total = { usage: emptyUsage(), elapsedMs: 0, toolCalls: 0 };
 	const options: AutopilotOptions = {
 		cwd: args.dir,
 		readiness,
@@ -233,6 +270,12 @@ async function main(): Promise<number> {
 				if (line) say(line);
 			},
 		onPartDone: (log) => {
+			total.usage.input += log.usage.input;
+			total.usage.output += log.usage.output;
+			total.usage.cacheRead += log.usage.cacheRead;
+			total.usage.cacheWrite += log.usage.cacheWrite;
+			total.elapsedMs += log.elapsedMs;
+			total.toolCalls += log.toolCalls;
 			const marks = [
 				log.closed ? "закрыта" : "не закрыта",
 				`вызовов инструментов ${log.toolCalls}`,
@@ -243,12 +286,14 @@ async function main(): Promise<number> {
 				log.closedWithoutHuman ? "закрыта без приёмки человеком" : "",
 			].filter(Boolean);
 			say(`  итог части ${log.part}: ${marks.join(", ")}`);
+			say(`  ${spend(log)}`);
 		},
 	};
 
 	const report = await runAutopilot(options);
 	say();
 	say(`Прогон окончен: ${report.stop}.`);
+	if (total.toolCalls) say(`Всего: ${spend(total)}`);
 	if (report.closed.length) say(`Закрыто: ${report.closed.length === 1 ? "часть" : "части"} ${report.closed.join(", ")}.`);
 	if (report.detail) say(report.detail);
 

@@ -61,6 +61,8 @@ const row = {
 	минут: minutes,
 	"токенов на вход": input,
 	"токенов на выход": output,
+	"ток/с по стене": minutes ? Number((output / (minutes * 60)).toFixed(1)) : 0,
+	"ток на вызов": toolCalls ? Math.round(output / toolCalls) : 0,
 	"вердикты адвоката": verdicts.join(", ") || "-",
 };
 console.log(JSON.stringify(row, null, 1));

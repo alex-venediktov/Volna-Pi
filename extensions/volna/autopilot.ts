@@ -28,6 +28,8 @@ import {
 	unfinishedParts,
 } from "./parts.ts";
 import { volnaPaths } from "./paths.ts";
+import { emptyUsage } from "./piagent.ts";
+import type { Usage } from "@earendil-works/pi-ai";
 import { type RpcAsk, type RpcEvent, type RpcTurnResult, startRpcSession } from "./rpc.ts";
 import { displayPath, isPlaceholder, loadActive, loadTask, readProfile, readState } from "./state.ts";
 
@@ -339,6 +341,10 @@ export interface PartRunLog {
 	asks: RpcAsk[];
 	notes: string[];
 	toolCalls: number;
+	/** Расход модели за всю часть: ходы складываются, кэш считается отдельно от свежего ввода. */
+	usage: Usage;
+	/** Сколько шла часть по стене, включая простой между ходами: это тоже её цена. */
+	elapsedMs: number;
 	/** Статусы, поменянные не у своей части: закрытие, поставленное не туда. */
 	stray: StrayChange[];
 	/** Часть закрыта сессией, хотя её критерий закрывает человек. */
@@ -491,6 +497,10 @@ function absorb(log: PartRunLog, turn: RpcTurnResult, signal?: AbortSignal): Sto
 	log.prompts++;
 	log.nudges += turn.nudges;
 	log.toolCalls += turn.toolCalls;
+	log.usage.input += turn.usage.input;
+	log.usage.output += turn.usage.output;
+	log.usage.cacheRead += turn.usage.cacheRead;
+	log.usage.cacheWrite += turn.usage.cacheWrite;
 	log.asks.push(...turn.asks);
 	log.notes.push(...turn.notes);
 	if (turn.texts.length) log.lastText = turn.texts[turn.texts.length - 1];
@@ -527,6 +537,8 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 		takePart(volnaPaths(volnaDir).journal(task), partsNow(volnaDir, task), part.number);
 		const before = partsNow(volnaDir, task);
 		const gitBefore = await gitSnapshot(options.cwd);
+		// Время по стене, а не сумма ходов: простой между ходами - такая же цена части, как и счёт.
+		const startedAt = Date.now();
 		options.onPart?.(part, index, queue.length);
 		const brief = options.readiness.briefs.find((item) => item.number === part.number);
 		const log: PartRunLog = {
@@ -538,9 +550,11 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 			asks: [],
 			notes: [],
 			toolCalls: 0,
+			usage: emptyUsage(),
+			elapsedMs: 0,
 			stray: [],
 			closedWithoutHuman: false,
-		journalLeft: [],
+			journalLeft: [],
 			stoppedBy: "",
 			strayPaths: [],
 			lastText: "",
@@ -619,6 +633,7 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 		if (found) stop = found[1];
 		if (log.closed) report.closed.push(part.number);
 		report.runs.push(log);
+		log.elapsedMs = Date.now() - startedAt;
 		options.onPartDone?.(log);
 
 		if (log.closed && !stop) continue;
@@ -657,6 +672,8 @@ export async function runTaskCapture(options: TaskCaptureOptions): Promise<PartR
 		asks: [],
 		notes: [],
 		toolCalls: 0,
+		usage: emptyUsage(),
+		elapsedMs: 0,
 		stray: [],
 		closedWithoutHuman: false,
 		journalLeft: [],
