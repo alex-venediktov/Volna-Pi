@@ -38,6 +38,9 @@ const minutes = stamps.length > 1 ? Math.round((Math.max(...stamps) - Math.min(.
 let input = 0;
 let output = 0;
 for (const e of events) {
+	// Расход считается по одному типу событий: `message_end` и `turn_end` несут одну и ту же
+	// запись, и сложение обоих удваивает числа - сравнение моделей сразу теряет смысл.
+	if (e.type !== "turn_end") continue;
 	const u = e.message?.usage;
 	if (!u) continue;
 	input += Number(u.input ?? 0) + Number(u.cacheRead ?? 0);
