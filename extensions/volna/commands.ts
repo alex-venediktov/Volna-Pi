@@ -142,10 +142,8 @@ export function registerCommands(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const assignment = args.trim();
 			const part = partArgument(assignment);
-			const result =
-				assignment && part === undefined
-					? intake(ctx.cwd, { assignment })
-					: await resumeTask(ctx.cwd, pi.exec, part);
+			const taking = assignment !== "" && part === undefined;
+			const result = taking ? intake(ctx.cwd, { assignment }) : await resumeTask(ctx.cwd, pi.exec, part);
 			if (!result.ok) {
 				ctx.ui.notify(result.message, "error");
 				return;
@@ -154,7 +152,7 @@ export function registerCommands(pi: ExtensionAPI): void {
 				pi,
 				ctx,
 				result.message,
-				assignment ? `Задача ${result.task} принята, этап intake` : `Задача ${result.task} продолжается, этап ${result.stage}`,
+				taking ? `Задача ${result.task} принята, этап intake` : `Задача ${result.task} продолжается, этап ${result.stage}`,
 			);
 		},
 	});
