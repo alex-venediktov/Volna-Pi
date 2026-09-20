@@ -258,8 +258,10 @@ export function strayFiles(changed: string[], touches: string): string[] {
 		.map((file) => file.replace(/\\/g, "/"))
 		.filter((file) => file && !file.startsWith(".volna/"))
 		.filter((file) => !inside(file))
-		// Спутник движка (.uid, .import) руками не пишут: он заводится к своему файлу сам.
-		.filter((file) => !inside(file.replace(/\.(uid|import)$/, "")))
+		// Спутник движка (.uid, .import) руками не пишут никогда: движок перегенерирует его сам,
+		// в том числе у чужих файлов. Сверять его базу с границей части бессмысленно - база
+		// может принадлежать любой части, а работы за этим нет.
+		.filter((file) => !/\.(uid|import)$/.test(file))
 		// Тест к своему файлу пишет та же часть: в проекте нет частей без тестов, а в поле
 		// «трогает» карточки тестов обычно нет - там перечислен деливерабл.
 		.filter((file) => !inside(file.replace(/(^|\/)test_/, "$1")))
