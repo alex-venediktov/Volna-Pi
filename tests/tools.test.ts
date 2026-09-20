@@ -74,10 +74,28 @@ export async function run(): Promise<void> {
 
 ## Профиль
 
+- визуальная проверка: chrome-devtools
 - endpoint браузера: http://127.0.0.1:9
 `, "utf8");
 	const visual = await call("volna_visual", { url: "http://127.0.0.1:9/" });
 	check("визуальная проверка сообщает, что браузера нет", toolText(visual).includes("не отвечает"), toolText(visual).slice(0, 80));
+
+	// Канал зрения не настроен - этап не «нечего проверять», а «не выполнено»: молчаливый пропуск и был
+	// причиной того, что неработающие сцены уезжали закрытыми.
+	writeFileSync(join(volnaDir, "project.md"), `# Проект
+
+## Профиль
+
+- визуальная проверка: нет
+`, "utf8");
+	let refused = "";
+	try {
+		await call("volna_visual", { url: "http://127.0.0.1:9/" });
+	} catch (error) {
+		refused = error instanceof Error ? error.message : String(error);
+	}
+	check("без канала зрения визуальная проверка отказывается, а не молчит", refused.includes("Канал зрения не настроен"), refused.slice(0, 80));
+	check("сказано, что чистый запуск визуальной проверкой не является", refused.includes("не является"), refused.slice(-80));
 
 	await call("volna_journal", {
 		action: "state",

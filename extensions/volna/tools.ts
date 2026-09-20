@@ -21,6 +21,7 @@ import { findVolnaDir, volnaPaths, workspaceRoot } from "./paths.ts";
 import { displayPath, loadActive, profileValue, readProfile, taskField, updateFrontmatter } from "./state.ts";
 import { STAGE_NAMES } from "./stages.ts";
 import { runVisualCheck, screenshotContent } from "./visual.ts";
+import { runShot, shotChannel } from "./shot.ts";
 import { recall } from "./recall.ts";
 import { continues, partsMap, partsRunReadiness, runPart } from "./runner.ts";
 import { runWiki, wikiRoot } from "./wiki-ops.ts";
@@ -347,15 +348,19 @@ export function registerTools(pi: ExtensionAPI): void {
 		name: "volna_visual",
 		label: "Волна: визуальная проверка",
 		description:
-			"Optional browser check in the pi-chrome-devtools browser: open a page, run steps, collect console " +
-			"errors, page exceptions and 4xx/5xx responses, take a screenshot.",
-		promptSnippet: "Open a page in the browser and collect console errors plus a screenshot",
+			"Produce a picture of the result. Two channels, chosen by the profile line визуальная проверка: " +
+			"chrome-devtools opens a page in the pi-chrome-devtools browser and collects console errors, page " +
+			"exceptions and 4xx/5xx responses; any other value is a project command that must print the image path " +
+			"as its last stdout line.",
+		promptSnippet: "Take a picture of the result and report what it shows",
 		promptGuidelines: [
-			"Call volna_visual on stage visual when the change is visible in a browser.",
+			"Call volna_visual on stage visual. It is the only thing that makes the stage done: a picture must exist.",
+			"Never report a visual verdict from logs or exit codes. A scene that built nothing loads as cleanly as a working one.",
 			"If it reports the browser is down, start it with chrome_devtools_navigate and call volna_visual again.",
 		],
 		parameters: Type.Object({
-			url: Type.String({ description: "e.g. http://localhost:5173/" }),
+			url: Type.Optional(Type.String({ description: "browser channel only, e.g. http://localhost:5173/" })),
+			argument: Type.Optional(Type.String({ description: "command channel only: scene, address or state to append to the profile command" })),
 			steps: Type.Optional(
 				Type.Array(
 					Type.Object({
@@ -382,6 +387,44 @@ export function registerTools(pi: ExtensionAPI): void {
 			const task = active?.task ?? "no-task";
 			const profile = readProfile(volnaDir);
 
+			// Значение берётся сырым, а не через profileValue: тот снимает плейсхолдер до пустой строки, и
+			// «не спрошено» стало бы неотличимо от «канала нет».
+			const channel = shotChannel(profile["визуальная проверка"]);
+			if (channel.kind === "не спрошено") {
+				throw new Error(
+					"Строка «визуальная проверка» профиля ещё не заполнена (значение в угловых скобках). " +
+					"Спроси человека, чем в этом проекте смотреть на результат, и запиши ответ в профиль.",
+				);
+			}
+			if (channel.kind === "нет") {
+				throw new Error(
+					"Канал зрения не настроен: строка «визуальная проверка» профиля пуста или «нет». " +
+					"Поставь chrome-devtools для веба либо команду, печатающую путь к картинке последней строкой. " +
+					"Без картинки визуальной проверки не бывает: «запустилось без ошибок» ею не является.",
+				);
+			}
+			if (channel.kind === "команда") {
+				onUpdate?.({ content: [{ type: "text", text: `Снимаю: ${channel.command}...` }], details: {} });
+				const shot = await runShot(pi.exec, {
+					cwd: ctx.cwd,
+					command: channel.command,
+					argument: params.argument,
+					signal,
+					timeoutMs: 180_000,
+				});
+				const shotContent: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
+					{ type: "text", text: `Визуальная проверка: ${shot.ok ? "снимок есть" : "не выполнено"}
+
+${shot.summary}` },
+				];
+				const wantsImage = profileValue(profile, "скриншот модели").toLowerCase();
+				if (shot.ok && shot.path && (wantsImage === "да" || wantsImage === "yes")) {
+					const image = screenshotContent(shot.path);
+					if (image) shotContent.push(image);
+				}
+				return { content: shotContent, details: { verdict: shot.ok ? "снимок есть" : "не выполнено", screenshotPath: shot.path, stderr: shot.stderr } };
+			}
+			if (!params.url) throw new Error("Браузерному каналу нужен адрес страницы: параметр url.");
 			onUpdate?.({ content: [{ type: "text", text: `Открываю ${params.url}...` }], details: {} });
 			const report = await runVisualCheck(
 				{

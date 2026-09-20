@@ -16,6 +16,7 @@ import { run as runEvents } from "./events.test.ts";
 import { run as runFlow } from "./flow.test.ts";
 import { run as runParts } from "./parts.test.ts";
 import { run as runRunner } from "./runner.test.ts";
+import { run as runShot } from "./shot.test.ts";
 import { run as runTools } from "./tools.test.ts";
 import { run as runWiki } from "./wiki.test.ts";
 
@@ -30,6 +31,7 @@ const suites: Array<[string, () => Promise<void>]> = [
 	["источники изменений", runChanges],
 	["доставка в git", runDeliver],
 	["дифф адвоката и визуальная проверка", runAdvocate],
+	["снимок экрана командой", runShot],
 	["вика выводов", runWiki],
 	["прогон частей подагентом", runRunner],
 	["внешний прогон частей сессиями pi", runAutopilot],
