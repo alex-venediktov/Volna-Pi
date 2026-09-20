@@ -273,9 +273,18 @@ function replacePartsBlock(body: string, parts: Part[]): string {
 
 /** Отделить статус от названия части. Статуса нет - часть ещё не начата. */
 function splitStatus(rest: string): { title: string; status: PartStatus; note: string } {
-	const re = new RegExp(`^(.*?)\\s*[-—–:]\\s*(${PART_STATUSES.join("|")})\\s*(?:\\(([^)]*)\\))?\\s*$`, "i");
+	// Статус берётся у первого совпадения, а не у последнего. Примечание пишется прозой и само
+	// содержит слова статуса: строка «патрули - сделано (1.5ч), закрыто - не начата», собранная
+	// сессией вручную, при разборе с конца превращает закрытую часть в не начатую, а весь итог -
+	// в название. Ошибка тихая: список на месте, читается, и только номер части у всех съезжает.
+	const re = new RegExp(`[-—–:]\\s*(${PART_STATUSES.join("|")})(?![\\p{L}])`, "iu");
 	const match = re.exec(rest);
-	if (!match) return { title: rest, status: "не начата", note: "" };
-	const status = PART_STATUSES.find((value) => value === match[2].toLowerCase()) ?? "не начата";
-	return { title: match[1].trim() || rest, status, note: (match[3] ?? "").trim() };
+	if (!match || match.index === undefined) return { title: rest, status: "не начата", note: "" };
+	const title = rest.slice(0, match.index).trim();
+	const status = PART_STATUSES.find((value) => value === match[1].toLowerCase()) ?? "не начата";
+	const tail = rest.slice(match.index + match[0].length).trim();
+	// Примечание в скобках - обычная форма, её скобки снимаются: обратная сборка ставит свои.
+	const wrapped = /^\((.*)\)$/s.exec(tail);
+	const note = wrapped ? wrapped[1].trim() : tail.replace(/^[,;]\s*/, "");
+	return { title: title || rest, status, note };
 }
