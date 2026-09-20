@@ -26,7 +26,7 @@ import {
 	splitDiff,
 	worstVerdict,
 } from "./advocate-batches.ts";
-import { collectChanges, NO_REPO_REASON } from "./changes.ts";
+import { collectChanges, NO_REPO_REASON, type ChangedFile } from "./changes.ts";
 import { stamp } from "./journal.ts";
 import { advocateDiffDir, packageRoot, workspaceRoot } from "./paths.ts";
 import { emptyUsage, type RunProgress, runPiAgent } from "./piagent.ts";
@@ -53,7 +53,6 @@ export interface AdvocateInput {
 export interface AdvocateResult {
 	verdict: Verdict;
 	report: string;
-	diffPath: string;
 	diffStat: string;
 	/** Есть ли здесь git: нет - проверять было нечего, и дифф пуст не потому, что правок нет. */
 	repo: boolean;
@@ -78,7 +77,6 @@ export interface AdvocateResult {
 	/** Проверка не закончена: остались файлы, которых ни один прогон не видел. */
 	pending: boolean;
 	/** Файл с диффом этой порции: его и читает адвокат. */
-	batchPath: string;
 	/** Итоги прошлых прогонов строками: что уже проверено и с каким вердиктом. */
 	runs: string;
 	/** Вердикт всей проверки по журналу: худшее из того, что нашли порции. */
@@ -104,9 +102,9 @@ export async function collectDiff(
 	base: string,
 	signal?: AbortSignal,
 ): Promise<{
-	path: string;
 	text: string;
 	stat: string;
+	files: ChangedFile[];
 	filesChanged: number;
 	empty: boolean;
 	repo: boolean;
@@ -117,17 +115,14 @@ export async function collectDiff(
 	mkdirSync(dir, { recursive: true });
 
 	const changes = await collectChanges(exec, { volnaDir, base, signal });
-	// Имя постоянное, а не с меткой времени: проверка идёт порциями, и дифф целиком пересобирается
-	// на каждом прогоне. С меткой в temp оставалось по копии на прогон - десяток одинаковых файлов
-	// на задачу, а история прогонов и так лежит в журнале проверок.
-	const path = join(dir, `${task}-full.diff`);
-	writeFileSync(path, changes.diff || "(изменений нет)", "utf8");
-
+	// Каталог заводится под журнал проверок и отчёты порций: сам дифф файлом не кладётся - адвокат
+	// берёт его у git той же командой, что и «Волна». Файл с диффом стоил пути в промпте, который
+	// модель обязана воспроизвести, и на этом прогон однажды встал.
 	const stat = changes.files.length
 		? changes.files.map((file) => `${file.status}: ${file.path}`).join("\n")
 		: "";
 	return {
-		path,
+		files: changes.files,
 		text: changes.diff,
 		stat,
 		filesChanged: changes.files.length,
@@ -186,22 +181,30 @@ export async function runAdvocate(
 	);
 	if (input.model) args.push("--model", input.model);
 
-	// Путь относительный, от корня проекта: абсолютный на Windows проходит через домашний каталог,
-	// и модель его не воспроизводит - см. `paths.ts:advocateDiffDir`.
-	const batchPath = relative(workspaceRoot(input.volnaDir), join(dir, `batch-${batch.number}.diff`)).split("\\").join("/");
 	const reviewedBefore = ledger.reviewed.map((entry) => entry.file);
+	// Дифф адвокат берёт у git сам, той же командой, что и «Волна». Файлом он не кладётся: файл
+	// означает путь в промпте, который модель обязана воспроизвести, - и на этом прогон однажды
+	// встал, уйдя искать `batch-1.diff` по всему диску.
+	const kinds = new Map(diff.files.map((file) => [file.path, file.status]));
+	const paths = batch.sections.map((item) => item.path);
+	// Новых файлов в `git diff` нет: их нет в индексе, а индекс «Волна» не трогает - она пишет в git
+	// только доставкой. Поэтому они называются отдельно и читаются целиком.
+	const fresh = paths.filter((path) => kinds.get(path) === "добавлен");
+	const tracked = paths.filter((path) => kinds.get(path) !== "добавлен");
+	const quote = (path: string) => (/[\s"']/.test(path) ? JSON.stringify(path) : path);
 
 	const prompt = [
 		`Задача ${input.task}. Проверь сделанные изменения.`,
 		`База сравнения: ${diff.base}.`,
 		batch.total > 1 ? `Это порция ${batch.number} из ${batch.total}: дифф разрезан по файлам.` : "",
 		"",
-		`Изменения этой порции лежат в файле: ${batchPath}`,
-		"Читай его инструментом read (файл может быть большим - читай частями), при необходимости",
-		"смотри исходники в рабочем дереве.",
+		"Изменения этой порции возьми у git сам:",
+		tracked.length ? `  git diff ${diff.base} -- ${tracked.map(quote).join(" ")}` : "  (изменённых файлов в этой порции нет)",
+		fresh.length
+			? `\nЭти файлы новые - git их не покажет, они ещё не в индексе. Читай их целиком инструментом read:\n${fresh.map((path) => `  - ${path}`).join("\n")}`
+			: "",
 		"",
-		"Файлы этой порции:",
-		batch.sections.map((item) => `- ${item.path}`).join("\n"),
+		"Исходники смотри в рабочем дереве: ты стоишь в его корне.",
 		reviewedBefore.length
 			? `\nУже разобрано прошлыми порциями (в этот дифф не входит, заново не проси): ${reviewedBefore.join(", ")}`
 			: "",
@@ -223,7 +226,6 @@ export async function runAdvocate(
 	const result: AdvocateResult = {
 		verdict: "не определён",
 		report: "",
-		diffPath: diff.path,
 		diffStat: diff.stat,
 		repo: diff.repo,
 		changeBase: diff.base,
@@ -241,7 +243,6 @@ export async function runAdvocate(
 		filesLeft: batch.filesLeft,
 		filesTotal: batch.filesTotal,
 		pending: batch.filesLeft > 0,
-		batchPath,
 		runs: ledgerSummary(ledger),
 		overall: worstVerdict(ledger),
 	};
@@ -289,8 +290,6 @@ export async function runAdvocate(
 		} catch {}
 		return result;
 	}
-
-	writeFileSync(batchPath, batch.sections.map((item) => item.text).join("\n\n"), "utf8");
 
 	const run = await runPiAgent(args, {
 		cwd: workspaceRoot(input.volnaDir),

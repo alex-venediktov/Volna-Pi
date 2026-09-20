@@ -22,7 +22,9 @@ written, and that is your advantage: you judge the change, not the intent.
 
 ## How to work
 
-- The changes are in the file named in the task. Read it with `read`, in parts if large.
+- **Get the diff from git yourself**: the task gives the exact `git diff` command for this batch. No file
+  holds it — a path in a prompt is one more thing to get wrong, and a wrong one sends you hunting the disk.
+- Files listed as new are not in the index, so `git diff` will not show them: read those whole.
 - **You get one batch of the diff, not the whole change.** The task names the files of this batch and the
   files earlier batches already covered. Judge the batch: the neighbours have their own run. Do not ask for
   files outside it and do not re-review what is listed as covered.

@@ -34,21 +34,21 @@ export async function run(): Promise<void> {
 	dropDiffs(volnaDir, "test-task");
 
 	const diff = await collectDiff(exec, volnaDir, "test-task", "HEAD");
-	const body = readFileSync(diff.path, "utf8");
+	const body = diff.text;
 	check("дифф собран", !diff.empty);
 	check("изменённая строка в диффе", body.includes("if (!items.length)"));
 	check("новый файл в диффе", body.includes("empty-state.js") && body.includes("EMPTY"));
 	check("бинарный файл не вставлен", body.includes("бинарный файл"), "blob.bin");
 	check("git найден", diff.repo);
 	check("сводка изменений есть", diff.stat.includes("list.js"));
-	// Дифф лежит внутри проекта: путь через домашний каталог на Windows бывает кириллическим, и
-	// модель его не воспроизводит - уходит искать файл по диску.
-	check("дифф лежит внутри .volna", diff.path.includes(".volna") && diff.path.includes("advocate"), diff.path);
-	check("путь к диффу короткий и относимый к проекту", diff.path.startsWith(volnaDir), diff.path);
-	check("дифф возвращается и текстом, не только файлом", diff.text.includes("if (!items.length)"));
+	// Дифф файлом не кладётся вовсе: адвокат берёт его у git сам. Файл означал путь в промпте,
+	// который модель обязана воспроизвести, - и на этом прогон однажды ушёл искать его по диску.
+	check("дифф возвращается текстом, а не файлом", diff.text.includes("if (!items.length)"));
+	check("файлы названы со статусами", diff.files.some((f) => f.path === "empty-state.js" && f.status === "добавлен"), JSON.stringify(diff.files));
+	check("изменённый файл отличим от нового", diff.files.some((f) => f.path === "list.js" && f.status === "изменён"));
 	batchesKeepWhatWasChecked(volnaDir, diff.text, diff.base);
 
-	check("диффы задачи убираются", dropDiffs(volnaDir, "test-task") && !existsSync(diff.path));
+	check("каталог проверок убирается", dropDiffs(volnaDir, "test-task") && !existsSync(join(volnaDir, "advocate", "test-task")));
 	check("служебное «Волны» в дифф не попало", !body.includes("новый файл, ещё не в индексе: .volna"));
 
 	check("вердикт разбирается", parseVerdict("...текст...\nВЕРДИКТ: дефекты") === "дефекты");

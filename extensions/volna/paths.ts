@@ -122,8 +122,16 @@ export function logReadInCommand(command: string): string | undefined {
 	// Команда разбирается на слова, а не выражением: путь и читатель могут стоять в любом порядке и
 	// через конвейер, а выражение на такой разбор получается хрупким.
 	const tokens = text.split(/[\s"'|;&<>()]+/).filter((token) => token !== "");
-	const found = tokens.find((token) => isJournalLog(token));
-	if (!found) return undefined;
-	const reads = tokens.some((token) => WHOLE_FILE_READERS.includes(basename(token).toLowerCase()));
-	return reads ? found : undefined;
+	// Читатель должен стоять именно перед путём, а не где-то в той же строке: `grep ... лог | tail -1`
+	// читает лог адресно, и хвост тут относится к выводу grep, а не к файлу.
+	for (let i = 0; i < tokens.length; i++) {
+		if (!WHOLE_FILE_READERS.includes(basename(tokens[i]).toLowerCase())) continue;
+		for (let j = i + 1; j < tokens.length; j++) {
+			// Ключи и их числовые значения пропускаем: `head -n 50 лог` - то же чтение целиком.
+			if (tokens[j].startsWith("-") || /^\d+$/.test(tokens[j])) continue;
+			if (isJournalLog(tokens[j])) return tokens[j];
+			break;
+		}
+	}
+	return undefined;
 }
