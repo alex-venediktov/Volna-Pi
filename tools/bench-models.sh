@@ -39,6 +39,12 @@ for model in "$@"; do
 		writeFileSync('$tree/.volna/state.json', JSON.stringify(src, null, 2) + '\n');
 	" || { echo "активную задачу перенести не вышло" >&2; }
 
+	# Кэш движка не коммитится, и свежее дерево заставило бы каждую модель платить за переимпорт
+	# проекта и пересборку кэша имён классов. Это шум, одинаковый для всех и ни о чём не говорящий.
+	if [ -d "$project/game/.godot" ] && [ ! -d "$tree/game/.godot" ]; then
+		cp -r "$project/game/.godot" "$tree/game/.godot" 2>/dev/null || true
+	fi
+
 	log="$out/$slug.log"
 	jsonl="$out/$slug.jsonl"
 	node --experimental-strip-types "$here/tools/plan-run.ts" \
