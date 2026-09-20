@@ -98,22 +98,18 @@ function journalLogRecognised(): void {
 	check("каталог логов сам по себе не файл", !isJournalLog(".volna/journal/logs"));
 
 	const log = ".volna/journal/logs/TASK-260920-a.log.md";
-	check("cat по логу опознан", logReadInCommand(`cat ${log}`) === log);
-	check("tail тоже читает целиком", logReadInCommand(`tail -100 ${log}`) === log);
-	check("читатель за конвейером опознан", logReadInCommand(`echo x && cat ${log} | head -50`) === log);
+	// Лог дописывается инструментом и не читается ничем. Послабление для адресного поиска стояло
+	// здесь раньше и себя не оправдало: сессия вытаскивала им десятки строк за раз и набирала ту же
+	// историю чужих частей, просто порциями.
+	check("cat по логу закрыт", logReadInCommand(`cat ${log}`) === log);
+	check("tail закрыт", logReadInCommand(`tail -100 ${log}`) === log);
+	check("grep по логу тоже закрыт", logReadInCommand(`grep -n "почему" ${log}`) === log);
+	check("адресная выборка закрыта", logReadInCommand(`sed -n "1,80p" ${log}`) === log);
+	check("чтение за конвейером закрыто", logReadInCommand(`grep -n x ${log} | head -5`) === log);
 	check("путь в кавычках опознан", logReadInCommand(`cat "${log}"`) === log);
-	check("grep по логу разрешён", logReadInCommand(`grep -n "почему" ${log}`) === undefined);
+	check("простое упоминание пути тоже закрыто", logReadInCommand(`ls -l ${log}`) === log);
+	// Единственное исключение: git кладёт журнал в коммит, а не читает его.
+	check("git add по логу разрешён", logReadInCommand(`git add ${log}`) === undefined);
+	check("git commit разрешён", logReadInCommand(`cd /x && git add ${log} && git commit -m x`) === undefined);
 	check("чтение постороннего файла не задето", logReadInCommand("cat package.json") === undefined);
-	check("путь без читателя не блокируется", logReadInCommand(`ls -l ${log}`) === undefined);
-	check("head с ключом и числом всё равно читает целиком", logReadInCommand(`head -n 50 ${log}`) === log);
-	// Читатель должен стоять перед путём: в `grep ... лог | tail -1` хвост относится к выводу grep.
-	check("хвост после конвейера чтением лога не считается", logReadInCommand(`grep -n x ${log} | tail -1`) === undefined);
-	check("чтение адресной выборкой не задето", logReadInCommand(`perl -ne "print if /x/" ${log} | head -3`) === undefined);
-	// Настоящие команды сессии, которые грубое правило блокировало зря: адресный поиск по логу -
-	// законный способ его читать, и этап capture пользуется именно им.
-	check(
-		"поиск кандидатов в вику проходит",
-		logReadInCommand(`cd "D:/x" && grep -n "в вики|отвергнуто" ${log} | head -30`) === undefined,
-	);
-	check("счёт совпадений проходит", logReadInCommand(`cd "D:/x" && grep -c X ${log}; echo done`) === undefined);
 }

@@ -74,7 +74,9 @@ export async function run(): Promise<void> {
 	check("файл состояния задачи читается свободно", (await toolCall("read", { path: join(volnaDir, "journal", `TASK-${task}.md`) })) === undefined);
 	const catLog = await toolCall("bash", { command: `cat ${ownLog}` });
 	check("обход через оболочку закрыт тоже", catLog?.block === true, String(catLog?.reason).slice(0, 60));
-	check("адресный поиск по логу разрешён", (await toolCall("bash", { command: `grep -n "почему" ${ownLog}` })) === undefined);
+	const grepLog = await toolCall("bash", { command: `grep -n "почему" ${ownLog}` });
+	check("поиск по логу тоже закрыт: он дописывается, а не читается", grepLog?.block === true, String(grepLog?.reason).slice(0, 60));
+	check("git оставлен: он кладёт журнал в коммит, а не читает", (await toolCall("bash", { command: `git add ${ownLog}` })) === undefined);
 	check("обычная команда оболочки не задета", (await toolCall("bash", { command: "cat package.json" })) === undefined);
 
 	await enterStage(dir, "implement", { reason: "правки по плану" });

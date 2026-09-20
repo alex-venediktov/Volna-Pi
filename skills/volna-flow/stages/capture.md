@@ -14,9 +14,11 @@ created behind the user's back.
 ## What to do
 
 1. **Start from Status** (`journal/TASK-<id>.md`): the `**в вики:**` subitem is the list of candidates
-   collected during the task, `**отвергнуто:**` holds the disproved hypotheses. Read the log
-   (`logs/TASK-<id>.log.md`) after that and **by address** (grep for `**почему:**`, `**отменяет:**`), not
-   whole. Keep what will be useful in **another** task:
+   collected during the task, `**отвергнуто:**` holds the disproved hypotheses. **That subitem is the
+   whole source.** The iteration log is append-only and is not read — not whole, not by search: it holds
+   every part's history together with the approaches that were abandoned, and out of their own context
+   those read as facts. What the log has to say reaches you through Status and through the outcomes of
+   closed parts. Keep what will be useful in **another** task:
    - a technique that worked;
    - a trap and its early sign («the value does not match — first check which reference build is open»);
    - a property of the reference or the infrastructure (encodings, dumper behaviour, fixture format);
