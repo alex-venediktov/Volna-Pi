@@ -1,5 +1,5 @@
 /** Правки для адвоката: git против точки начала части, отказ без git. И unified diff своими силами. */
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { collectChanges } from "../extensions/volna/changes.ts";
 import { fileDiff } from "../extensions/volna/diff.ts";
@@ -8,6 +8,7 @@ import { check, exec, sandbox } from "./harness.ts";
 
 export async function run(): Promise<void> {
 	await gitSource();
+	await journalOutsideDiff();
 	await withoutGit();
 	await freshRepo();
 	unifiedDiff();
@@ -54,6 +55,42 @@ async function gitSource(): Promise<void> {
 	check("пропавшая база не выдумывается", lost.notes.join(" ").includes("не найдена"), lost.notes.join(" ").slice(0, 80));
 }
 
+/**
+ * Журнал, заведённый в git, в дифф адвоката не попадает. Проверяется именно закоммиченный: у
+ * невзятого в индекс есть свой отсев, а тракуемый шёл через `git diff` без фильтра - и лог итераций
+ * занимал порции, которые адвокат читает вместо кода.
+ */
+async function journalOutsideDiff(): Promise<void> {
+	const dir = sandbox("changes-journal", { git: false });
+	await exec("git", ["init", "-q", dir]);
+	await exec("git", ["-C", dir, "config", "user.email", "test@example.com"]);
+	await exec("git", ["-C", dir, "config", "user.name", "test"]);
+	initVolna(dir);
+	const volnaDir = join(dir, ".volna");
+	const journal = join(volnaDir, "journal", "TASK-проба.md");
+	const note = join(volnaDir, "wiki", "process", "uzel-vyvod.md");
+	mkdirSync(join(volnaDir, "wiki", "process"), { recursive: true });
+	writeFileSync(join(dir, "app.js"), "export const a = 1;\n", "utf8");
+	writeFileSync(journal, "# журнал\n\nпервая итерация\n", "utf8");
+	writeFileSync(note, "# вывод про узел\n\nбыло так\n", "utf8");
+	await exec("git", ["-C", dir, "add", "-f", "."]);
+	await exec("git", ["-C", dir, "commit", "-q", "-m", "база"]);
+	const base = (await exec("git", ["-C", dir, "rev-parse", "HEAD"])).stdout.trim();
+
+	writeFileSync(join(dir, "app.js"), "export const a = 2;\n", "utf8");
+	writeFileSync(journal, "# журнал\n\nпервая итерация\nвторая итерация\n", "utf8");
+	writeFileSync(note, "# вывод про узел\n\nстало так\n", "utf8");
+
+	const changes = await collectChanges(exec, { volnaDir, base });
+	check("правка кода в дифф попала", changes.files.some((file) => file.path === "app.js"));
+	check(
+		"закоммиченный журнал в дифф не попал",
+		!changes.files.some((file) => file.path.startsWith(".volna/journal/")),
+		JSON.stringify(changes.files),
+	);
+	check("строки журнала не попали и в тело диффа", !changes.diff.includes("вторая итерация"));
+	check("вика адвокату видна: её утверждения стоит проверять", changes.diff.includes("стало так"));
+}
 /** Без git проверять нечего, и это сказано прямо, а не пустым списком правок. */
 async function withoutGit(): Promise<void> {
 	const dir = sandbox("changes-nogit", { git: false });

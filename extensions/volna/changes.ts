@@ -90,16 +90,23 @@ export async function collectChanges(exec: ExecLike, options: CollectOptions): P
 		);
 	}
 
+	// Журнал из диффа вычитается: его пишет сам флоу, и разбирать его - не разбор работы. Цена не
+	// в точности, а во времени: лог итераций растёт на каждую часть и к середине задачи занимает
+	// целые порции, которые адвокат читает вместо кода. Вика остаётся: её содержание - утверждения
+	// о проекте, и проверить их стоит.
+	const OUTSIDE = ":(exclude).volna/journal/";
 	const files: ChangedFile[] = [];
 	let body = "";
 	if (base) {
-		const status = await exec("git", [...QUOTEPATH, "-C", root, "diff", "--name-status", base], { signal: options.signal });
+		const status = await exec("git", [...QUOTEPATH, "-C", root, "diff", "--name-status", base, "--", ".", OUTSIDE], {
+			signal: options.signal,
+		});
 		for (const line of status.stdout.split(/\r?\n/)) {
 			const match = /^([A-Z])\d*\s+(.+)$/.exec(line.trim());
 			if (!match) continue;
 			files.push({ path: normalizePath(match[2]), status: gitStatus(match[1]) });
 		}
-		body = (await exec("git", [...QUOTEPATH, "-C", root, "diff", base], { signal: options.signal })).stdout;
+		body = (await exec("git", [...QUOTEPATH, "-C", root, "diff", base, "--", ".", OUTSIDE], { signal: options.signal })).stdout;
 	}
 
 	const untracked = await exec("git", [...QUOTEPATH, "-C", root, "ls-files", "--others", "--exclude-standard"], { signal: options.signal });
