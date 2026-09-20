@@ -34,7 +34,7 @@ export const STAGES: Stage[] = [
 	{ name: "implement", level: "expected", title: "итерация правок по плану", next: "advocate" },
 	{ name: "advocate", level: "expected", title: "адвокат дьявола против своего решения, по полному диффу", next: "unit-tests" },
 	{ name: "unit-tests", level: "expected", title: "тесты по конвенциям проекта", next: "visual" },
-	{ name: "visual", level: "optional", title: "визуальная проверка: браузер, ошибки консоли, скриншот", next: "capture" },
+	{ name: "visual", level: "optional", title: "визуальная проверка: картинка результата, ошибки консоли", next: "capture" },
 	{ name: "capture", level: "expected", title: "извлечь опыт задачи в вику выводов до доставки", next: "deliver" },
 	{ name: "deliver", level: "expected", title: "доставка: ветка задачи, коммит части, push", next: "close" },
 	{ name: "close", level: "required", title: "итог, часы в журнал, завершение задачи", next: undefined },
