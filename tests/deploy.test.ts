@@ -109,4 +109,11 @@ function journalLogRecognised(): void {
 	// Читатель должен стоять перед путём: в `grep ... лог | tail -1` хвост относится к выводу grep.
 	check("хвост после конвейера чтением лога не считается", logReadInCommand(`grep -n x ${log} | tail -1`) === undefined);
 	check("чтение адресной выборкой не задето", logReadInCommand(`perl -ne "print if /x/" ${log} | head -3`) === undefined);
+	// Настоящие команды сессии, которые грубое правило блокировало зря: адресный поиск по логу -
+	// законный способ его читать, и этап capture пользуется именно им.
+	check(
+		"поиск кандидатов в вику проходит",
+		logReadInCommand(`cd "D:/x" && grep -n "в вики|отвергнуто" ${log} | head -30`) === undefined,
+	);
+	check("счёт совпадений проходит", logReadInCommand(`cd "D:/x" && grep -c X ${log}; echo done`) === undefined);
 }
