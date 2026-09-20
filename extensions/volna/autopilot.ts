@@ -380,15 +380,17 @@ export interface AutopilotOptions {
 }
 
 /**
- * Чем сессия входит в часть. Команда без аргумента поднимает активную задачу, ставит очередную
+ * Чем сессия входит в часть. Команда поднимает активную задачу, ставит названную
  * часть в работу и вводит её в spec (`core.ts:resumeTask`) - то самое продолжение, которое «Волна»
  * называет человеку на закрытии части. Без него сессия открывается на этапе, которым кончилась
  * предыдущая часть (`close`), и флоу не начинается вовсе: модель читает журнал и ходит кругами.
  *
- * Часть выбирает сама команда - ту, что «в работе», а если такой нет, первую не начатую. С
- * очередью драйвера это сходится потому, что часть помечена взятой строкой выше.
+ * Номер называется явно, потому что очередь драйвера и «очередная часть» «Волны» - разные вещи:
+ * без номера команда берёт первую начатую, а у прогона она могла быть отложена ключом --skip как
+ * ждущая человека. Тогда сессия получает шапку одной части и задание другой, а журнал пишет работу
+ * не под тем номером.
  */
-const ENTER_PART = "/volna:task";
+const enterPart = (number: number): string => `/volna:task ${number}`;
 
 /**
  * Чем просить прерванную сессию свести журнал. Прерванный ход оставляет «Состояние» отставшим от
@@ -538,7 +540,7 @@ export async function runAutopilot(options: AutopilotOptions): Promise<Autopilot
 		});
 		let stop: StopReason | null = null;
 		try {
-			stop = absorb(log, await session.prompt(ENTER_PART), options.signal);
+			stop = absorb(log, await session.prompt(enterPart(part.number)), options.signal);
 			let text = partPrompt({ volnaDir, task, part, criterion: brief?.criterion ?? "", brief });
 			for (let attempt = 0; !stop && attempt <= options.maxContinues; attempt++) {
 				stop = absorb(log, await session.prompt(text), options.signal);

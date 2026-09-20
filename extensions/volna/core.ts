@@ -136,7 +136,7 @@ export function intake(cwd: string, options: IntakeOptions): FlowResult {
  * Продолжение задачи после /new: есть остаток по частям - поднять задачу и войти в spec следующей
  * части, не спрашивая «начинаем?». Ответ на этот вопрос человек дал, когда делил задачу.
  */
-export async function resumeTask(cwd: string, exec?: ExecLike): Promise<FlowResult> {
+export async function resumeTask(cwd: string, exec?: ExecLike, part?: number): Promise<FlowResult> {
 	const guard = requireVolna(cwd);
 	if ("error" in guard) return { ok: false, message: guard.error, warnings: [] };
 	const active = loadActive(cwd);
@@ -149,7 +149,22 @@ export async function resumeTask(cwd: string, exec?: ExecLike): Promise<FlowResu
 	}
 
 	const parts = partsFromState(active.stateSection);
-	const next = currentPart(parts);
+	// Часть названа явно - берётся она, а не очередная. Внешний прогон гонит части не подряд (ключ
+	// --skip), и «очередная» у него своя: `currentPart` отдаёт первую начатую, а у прогона она могла
+	// быть отложена до человека. Без явного номера сессия получала бы шапку одной части и задание
+	// другой, а журнал писал бы работу не под тем номером.
+	const named = part === undefined ? undefined : parts.find((item) => item.number === part);
+	if (part !== undefined && !named) {
+		return {
+			ok: false,
+			message: `Части ${part} в задаче ${active.task} нет: частей ${parts.length}.`,
+			warnings: [],
+		};
+	}
+	if (named && named.status === "сделано") {
+		return { ok: false, message: `Часть ${part} уже закрыта, возвращать её в работу нечем.`, warnings: [] };
+	}
+	const next = named ?? currentPart(parts);
 	if (!parts.length || !next) {
 		const stage = taskField(active.fm, "stage");
 		return {

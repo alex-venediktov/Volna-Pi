@@ -136,11 +136,17 @@ export function registerSetupCommands(pi: ExtensionAPI, wake: (cwd: string) => b
 
 export function registerCommands(pi: ExtensionAPI): void {
 	pi.registerCommand("volna:task", {
-		description: "Волна: принять задание (текст или ссылка на файл), без аргумента - продолжить задачу со следующей части",
+		description: "Волна: принять задание (текст или ссылка на файл), номер - продолжить с этой части, без аргумента - со следующей",
 		getArgumentCompletions: (prefix) => fileCompletions(prefix),
 		handler: async (args, ctx) => {
 			const assignment = args.trim();
-			const result = assignment ? intake(ctx.cwd, { assignment }) : await resumeTask(ctx.cwd, pi.exec);
+			// Голое число - номер части, а не задание: задания из одних цифр не бывает, а прогон частей
+			// не подряд иначе некому назвать.
+			const part = /^d+$/.test(assignment) ? Number(assignment) : undefined;
+			const result =
+				assignment && part === undefined
+					? intake(ctx.cwd, { assignment })
+					: await resumeTask(ctx.cwd, pi.exec, part);
 			if (!result.ok) {
 				ctx.ui.notify(result.message, "error");
 				return;

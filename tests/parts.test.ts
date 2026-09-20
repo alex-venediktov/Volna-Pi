@@ -98,6 +98,7 @@ export async function run(): Promise<void> {
 	);
 
 	await baseMovesWithPart();
+	await namedPartWins();
 	partStatementsLiveInTheLog();
 }
 
@@ -174,6 +175,40 @@ function partStatementsLiveInTheLog(): void {
 	check("повторное взятие ничего не переписывает", !takePart(journalPath, partsFromState(loadActive(dir)!.stateSection), 1));
 	const closed = markPart(partsFromState(loadActive(dir)!.stateSection), 2, "сделано", "2026-09-14, 1ч");
 	check("закрытую часть в работу не вернуть", !takePart(journalPath, closed, 2));
+}
+
+/**
+ * Часть, названную номером, продолжение берёт вместо очередной. Прогон гонит части не подряд, и
+ * «очередная» у «Волны» своя: первая начатая. Отложенная до человека часть остаётся начатой, и без
+ * номера сессия вошла бы в неё, получив задание на другую.
+ */
+async function namedPartWins(): Promise<void> {
+	const dir = sandbox("parts-named");
+	initVolna(dir);
+	intake(dir, { assignment: "Три части, средняя отложена до человека" });
+	const journalPath = loadActive(dir)!.journalPath;
+	writeStateSection(journalPath, {
+		goal: "части не подряд",
+		parts: "1. схема - сделано (2026-09-01, 1ч)\n2. замер на устройстве - в работе\n3. патрули - не начата",
+		done: "первая часть закрыта",
+		next: "часть 2 ждёт человека",
+	});
+
+	const byDefault = await resumeTask(dir);
+	check("без номера продолжение берёт первую начатую", byDefault.message.includes("часть 2/3"), byDefault.message.slice(0, 120));
+
+	const named = await resumeTask(dir, undefined, 3);
+	check("названная часть перебивает очередную", named.ok && named.message.includes("часть 3/3"), named.message.slice(0, 120));
+	check(
+		"названная часть переведена в работу",
+		partsFromState(loadActive(dir)!.stateSection)[2].status === "в работе",
+		partsFromState(loadActive(dir)!.stateSection)[2].status,
+	);
+
+	const closed = await resumeTask(dir, undefined, 1);
+	check("закрытую часть продолжением не поднять", !closed.ok, closed.message.slice(0, 80));
+	const missing = await resumeTask(dir, undefined, 9);
+	check("несуществующая часть названа ошибкой, а не молчанием", !missing.ok && missing.message.includes("9"), missing.message.slice(0, 80));
 }
 
 /** Закрытие части сдвигает базу адвоката: следующая часть ставит свою точку начала на implement. */

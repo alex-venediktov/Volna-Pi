@@ -279,7 +279,7 @@ async function loop(): Promise<void> {
 	// Отправленное драйвером идёт тем же потоком: иначе в стенограмме видна половина разговора
 	check("поданное драйвером видно в потоке событий", seen.includes("driver:prompt"), seen.slice(0, 6).join(", "));
 	check("ответы сессии в потоке тоже есть", seen.includes("message_end"), seen.slice(0, 6).join(", "));
-	check("первым подаётся вход в часть", prompts[0] === "/volna:task", prompts[0]);
+	check("первым подаётся вход в названную часть", prompts[0] === "/volna:task 2", prompts[0]);
 	check("задание на часть идёт следом", prompts[1]?.includes("часть 2:") === true, prompts[1]);
 	check("часть видно начатой, пока над ней работают", takenWhileRunning === "в работе", String(takenWhileRunning));
 	check("закрытие чужой части останавливает прогон", report.stop === "тронута чужая часть", report.stop);
