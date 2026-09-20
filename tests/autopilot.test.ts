@@ -154,10 +154,18 @@ function verdict(): void {
 	const task = readState(volnaDir).active ?? "";
 
 	writeParts(volnaDir, task, "1. проект - сделано (2026-09-19, 3ч)\n2. автозагрузки - в работе\n3. оверлей - снята (не нужен)");
-	check("часть со статусом «сделано» закрыта", partClosed(volnaDir, task, 1));
+	check("статуса «сделано» мало: закрытия в логе нет", !partClosed(volnaDir, task, 1));
 	check("часть в работе не закрыта", !partClosed(volnaDir, task, 2));
-	check("снятая часть тоже закрыта", partClosed(volnaDir, task, 3));
+	check("снятая часть закрыта: «снята» ставит только полное закрытие задачи", partClosed(volnaDir, task, 3));
 	check("части вне списка закрытыми не считаются", !partClosed(volnaDir, task, 9));
+
+	// След, которого рукой не поставишь: секцию close пишет только `finishTask`.
+	appendLogSection(volnaDir, task, {
+		stage: "close",
+		fields: { что: "часть 1/3 закрыта: проект", сделано: "каркас на месте" },
+	});
+	check("со следом закрытия в логе часть закрыта", partClosed(volnaDir, task, 1));
+	check("чужой след закрытия за свой не считается", !partClosed(volnaDir, task, 2));
 }
 
 /** Поток rpc: разбор записей и ответ на диалог расширения. */

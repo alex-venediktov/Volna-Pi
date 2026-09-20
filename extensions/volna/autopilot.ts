@@ -283,7 +283,26 @@ export function journalStale(volnaDir: string, task: string): boolean {
 /** Закрыта ли часть по журналу на диске. Часть исчезла из списка - считается незакрытой. */
 export function partClosed(volnaDir: string, task: string, number: number): boolean {
 	const part = partsNow(volnaDir, task).find((item) => item.number === number);
-	return part?.status === "сделано" || part?.status === "снята";
+	if (!part) return false;
+	// «Снята» ставится только полным закрытием задачи, а на него прогон и так останавливается.
+	if (part.status === "снята") return true;
+	if (part.status !== "сделано") return false;
+	// Статус на диске - ещё не закрытие: список частей сессия пишет сама (`volna_journal action=state`),
+	// и слово «сделано» в нём стоит ровно столько же, сколько заявление в ответе. Закрытие оставляет
+	// след, которого рукой не поставишь: секцию `close` с этой частью в append-only логе.
+	return closeLogged(volnaDir, task, number);
+}
+
+/** Есть ли в логе итераций отметка о закрытии этой части - та, что пишет `finishTask`. */
+export function closeLogged(volnaDir: string, task: string, number: number): boolean {
+	const fresh = loadTask(volnaDir, task);
+	if (!fresh) return false;
+	// Отметка ищется подстрокой, а не выражением: её текст ставит `core.ts:finishTask` одним местом,
+	// и совпасть он обязан буквально.
+	const mark = `- **что:** часть ${number}/`;
+	return sectionsOf(fresh.logText, "close").some((section) =>
+		section.split("\n").some((line) => line.startsWith(mark) && line.includes(" закрыта:")),
+	);
 }
 
 /** Часть, которой сессия не занималась, а статус ей поменяла. */
