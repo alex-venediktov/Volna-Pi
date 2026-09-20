@@ -33,12 +33,15 @@ here=$(win "$here")
 echo "стенд: часть $part от $base, моделей $#" | tee "$out/README.txt"
 
 for model in "$@"; do
-	slug=$(echo "$model" | tr -c 'A-Za-z0-9._-' '-')
+	slug=$(printf '%s' "$model" | tr -c 'A-Za-z0-9._-' '-')
 	tree="$out/tree-$slug"
 	echo
 	echo "=== $model ==="
 	# Дерево заводится заново на каждую модель: остатки прошлой обнулили бы сравнение.
 	git -C "$project" worktree add -q --detach "$tree" "$base" || { echo "не удалось завести дерево" >&2; continue; }
+	# База обязана быть с несведённым журналом несовместима: драйвер на такой не стартует, и это
+	# правильно - иначе сессия работала бы по устаревшей картине. Проверяем до прогона, чтобы не
+	# узнать об этом семь раз подряд.
 	# state.json не коммитится, поэтому активную задачу в свежем дереве надо поставить руками.
 	node --experimental-strip-types --input-type=module -e "
 		import { readFileSync, writeFileSync } from 'node:fs';
