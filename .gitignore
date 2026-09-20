@@ -7,3 +7,6 @@ node_modules/
 .volna/baseline/
 package-lock.json
 *.jsonl
+
+# черновики живых проверок драйвера: одноразовые, в репозитории им не место
+live-*.tmp.ts
