@@ -20,8 +20,8 @@ import { registerCommands, registerSetupCommands } from "./commands.ts";
 import { contextHeader, journalWarnings } from "./core.ts";
 import { journalIssues, logSinceClose, stagesInLog } from "./journal.ts";
 import { currentPart, partsFromState, partsHeadline, unfinishedParts } from "./parts.ts";
-import { findVolnaDir, isInside, packageRoot, volnaPaths } from "./paths.ts";
-import { type ActiveTask, loadActive, profileValue, readProfile, readState, taskField, taskList } from "./state.ts";
+import { findVolnaDir, isInside, isJournalLog, logReadInCommand, packageRoot, volnaPaths } from "./paths.ts";
+import { type ActiveTask, displayPath, loadActive, profileValue, readProfile, readState, taskField, taskList } from "./state.ts";
 import { stagePosition } from "./stages.ts";
 import { registerTools } from "./tools.ts";
 
@@ -79,9 +79,15 @@ export default function volna(pi: ExtensionAPI): void {
 		if (!active) return;
 
 		if (isToolCallEventType("bash", event)) {
-			warnOnCommit(ctx, active, String(event.input.command ?? ""));
+			const command = String(event.input.command ?? "");
+			warnOnCommit(ctx, active, command);
+			const throughShell = logReadInCommand(command);
+			if (throughShell) return refuseLogRead(throughShell, active);
 			return;
 		}
+
+		const read = readPath(event);
+		if (read && isJournalLog(read)) return refuseLogRead(read, active);
 
 		const path = editPath(event);
 		if (!path) return;
@@ -201,6 +207,33 @@ function resumeCard(active: ActiveTask): string {
 			: "Продолжай с текущего этапа: volna_stage вернёт его инструкцию и контекст. Журнал пиши через volna_journal.",
 	);
 	return lines.join("\n");
+}
+
+/** Путь, который инструмент собирается прочитать целиком. Поиск по файлам сюда не относится. */
+function readPath(event: { toolName: string; input: any }): string | undefined {
+	if (event.toolName !== "read") return undefined;
+	const path = event.input?.path;
+	return typeof path === "string" && path.trim() ? path : undefined;
+}
+
+/**
+ * Отказ читать лог итераций целиком. Запрет держится устройством, а не просьбой в промпте: просьбу
+ * сессия видит один раз в начале хода, а тянется к логу тогда, когда уже потеряла нить - и читает
+ * историю всех частей вместе с отвергнутыми подходами. В чужом контексте брошенная гипотеза
+ * читается как факт о проекте, и стоит это дороже, чем неудобство отказа.
+ *
+ * Адресный поиск не запрещён: им лог и читают, когда надо уточнить одну вещь.
+ */
+function refuseLogRead(path: string, active: ActiveTask): { block: true; reason: string } {
+	return {
+		block: true,
+		reason: [
+			`Волна: лог итераций целиком не читается (${path}).`,
+			`Картина задачи - секция «Состояние» в ${displayPath(active.volnaDir, active.journalPath)}: по ней задача и восстанавливается.`,
+			"Нужна подробность - ищи по логу адресно (grep по этапу, по «**почему:**», по номеру части), а не читай целиком:",
+			"там история всех частей вместе с отвергнутыми подходами, и в чужом контексте брошенная гипотеза читается как факт.",
+		].join(" "),
+	};
 }
 
 /** Путь, который инструмент собирается изменить. Не правка файла - undefined. */

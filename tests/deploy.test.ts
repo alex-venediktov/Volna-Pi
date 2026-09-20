@@ -2,12 +2,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { blanketIgnoreRule, initVolna, repoRootFor } from "../extensions/volna/init.ts";
-import { findVolnaDir } from "../extensions/volna/paths.ts";
+import { findVolnaDir, isJournalLog, logReadInCommand } from "../extensions/volna/paths.ts";
 import { check, exec, sandbox } from "./harness.ts";
 
 export async function run(): Promise<void> {
 	await withoutGit();
 	await searchBoundary();
+	journalLogRecognised();
 }
 
 /** Вне git: .volna заводится, .gitignore - нет, и человеку сказано, чего в проекте не будет. */
@@ -81,4 +82,27 @@ async function searchBoundary(): Promise<void> {
 	const plain = sandbox("deploy-plain", { git: false });
 	check("вне проекта и без .volna поиск ничего не выдумывает", findVolnaDir(plain) === null);
 	check("корень для развёртывания вне git - сам каталог", repoRootFor(plain).toLowerCase() === plain.toLowerCase());
+}
+
+/**
+ * Лог итераций опознаётся по раскладке, а не по имени задачи: гейт чтения обязан закрывать и чужой
+ * лог тоже. Чтение целиком отличается от адресного поиска - на этом различии гейт и стоит.
+ */
+function journalLogRecognised(): void {
+	check("свой лог опознан", isJournalLog(".volna/journal/logs/TASK-260920-a.log.md"));
+	check("чужой лог опознан так же", isJournalLog("/other/project/.volna/journal/logs/TASK-250101-b.log.md"));
+	const windows = ["D:", "p", ".volna", "journal", "logs", "TASK-x.log.md"].join(String.fromCharCode(92));
+	check("обратные слэши не мешают", isJournalLog(windows), windows);
+	check("файл состояния логом не считается", !isJournalLog(".volna/journal/TASK-260920-a.md"));
+	check("посторонний лог не считается", !isJournalLog("logs/app.log.md"));
+	check("каталог логов сам по себе не файл", !isJournalLog(".volna/journal/logs"));
+
+	const log = ".volna/journal/logs/TASK-260920-a.log.md";
+	check("cat по логу опознан", logReadInCommand(`cat ${log}`) === log);
+	check("tail тоже читает целиком", logReadInCommand(`tail -100 ${log}`) === log);
+	check("читатель за конвейером опознан", logReadInCommand(`echo x && cat ${log} | head -50`) === log);
+	check("путь в кавычках опознан", logReadInCommand(`cat "${log}"`) === log);
+	check("grep по логу разрешён", logReadInCommand(`grep -n "почему" ${log}`) === undefined);
+	check("чтение постороннего файла не задето", logReadInCommand("cat package.json") === undefined);
+	check("путь без читателя не блокируется", logReadInCommand(`ls -l ${log}`) === undefined);
 }

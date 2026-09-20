@@ -62,6 +62,21 @@ export async function run(): Promise<void> {
 	check("правка внутри .volna разрешена", (await toolCall("edit", { path: join(volnaDir, "project.md") })) === undefined);
 	check("чтение не блокируется", (await toolCall("read", { path: join(dir, "src.js") })) === undefined);
 
+	// Лог итераций - история всех частей вместе с отвергнутыми подходами. Запрет держится
+	// устройством, а не просьбой в промпте: просьбу видно один раз в начале хода, а тянется сессия
+	// к логу тогда, когда уже потеряла нить.
+	const ownLog = join(volnaDir, "journal", "logs", `TASK-${task}.log.md`);
+	const foreignLog = join(volnaDir, "journal", "logs", "TASK-260101-chuzhaya.log.md");
+	const logBlocked = await toolCall("read", { path: ownLog });
+	check("свой лог итераций читать целиком нельзя", logBlocked?.block === true, String(logBlocked?.reason).slice(0, 60));
+	check("в отказе назван адрес «Состояния»", String(logBlocked?.reason).includes("Состояние"), String(logBlocked?.reason).slice(0, 120));
+	check("чужой лог тоже закрыт", (await toolCall("read", { path: foreignLog }))?.block === true);
+	check("файл состояния задачи читается свободно", (await toolCall("read", { path: join(volnaDir, "journal", `TASK-${task}.md`) })) === undefined);
+	const catLog = await toolCall("bash", { command: `cat ${ownLog}` });
+	check("обход через оболочку закрыт тоже", catLog?.block === true, String(catLog?.reason).slice(0, 60));
+	check("адресный поиск по логу разрешён", (await toolCall("bash", { command: `grep -n "почему" ${ownLog}` })) === undefined);
+	check("обычная команда оболочки не задета", (await toolCall("bash", { command: "cat package.json" })) === undefined);
+
 	await enterStage(dir, "implement", { reason: "правки по плану" });
 	check("на implement правки разрешены", (await toolCall("write", { path: join(dir, "src", "orders.js") })) === undefined);
 

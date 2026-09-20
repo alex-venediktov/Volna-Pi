@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const VOLNA_DIR_NAME = ".volna";
@@ -90,4 +90,36 @@ export function isInside(child: string, parent: string): boolean {
 /** Путь к сравнимому виду: абсолютный, с прямыми слэшами, без хвостового слэша, в нижнем регистре. */
 function norm(path: string): string {
 	return resolve(path).split("\\").join("/").replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * Лог итераций ли это - свой или чужой. Признак берётся из раскладки, а не из имени задачи:
+ * `.volna/journal/logs/<что угодно>.log.md`. Чужой лог опаснее своего: в нём история задачи, к
+ * которой сессия отношения не имеет, и брошенная там гипотеза читается как факт о проекте.
+ */
+export function isJournalLog(path: string): boolean {
+	const p = String(path ?? "").split("\\").join("/").toLowerCase();
+	return /(^|\/)\.volna\/journal\/logs\/[^/]+\.log\.md$/.test(p);
+}
+
+/** Команды оболочки, которые выдают файл целиком. `grep`, `rg` и адресная выборка сюда не входят. */
+const WHOLE_FILE_READERS = ["cat", "head", "tail", "more", "less", "type", "get-content", "bat", "nl"];
+
+/**
+ * Читает ли команда оболочки лог итераций целиком. Возвращает найденный путь - он идёт в объяснение,
+ * иначе отказ выглядит как каприз.
+ *
+ * Разбор грубый и намеренно такой: полноценный парсер оболочки здесь не нужен, а цена ошибки
+ * несимметрична. Пропущенный обход стоит засорённого контекста, лишний отказ - одной попытки:
+ * рядом сказано, чем читать вместо этого.
+ */
+export function logReadInCommand(command: string): string | undefined {
+	const text = String(command ?? "");
+	// Команда разбирается на слова, а не выражением: путь и читатель могут стоять в любом порядке и
+	// через конвейер, а выражение на такой разбор получается хрупким.
+	const tokens = text.split(/[\s"'|;&<>()]+/).filter((token) => token !== "");
+	const found = tokens.find((token) => isJournalLog(token));
+	if (!found) return undefined;
+	const reads = tokens.some((token) => WHOLE_FILE_READERS.includes(basename(token).toLowerCase()));
+	return reads ? found : undefined;
 }
