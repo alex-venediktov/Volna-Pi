@@ -74,7 +74,7 @@ export interface RpcSessionOptions {
 	 * причина прервать ход. Нужно потому, что после хода разбирать нечего, пока ход идёт:
 	 * сессия, работающая без остановки, управления не возвращает.
 	 */
-	watch?: (state: { toolCalls: number; elapsedMs: number }) => string | null;
+	watch?: (state: { toolCalls: number; elapsedMs: number; repeats: number; lastCall: string }) => string | null;
 	signal?: AbortSignal;
 	/** Чем поднимать сессию вместо самого pi. Нужно тесту протокола: живой pi требует модели. */
 	exec?: { command: string; args: string[] };
@@ -221,6 +221,8 @@ export function startRpcSession(options: RpcSessionOptions): RpcSession {
 			let interrupted = false;
 			let done = false;
 			let watch: ReturnType<typeof setInterval> | null = null;
+			let lastCall = "";
+			let repeats = 0;
 
 			const finish = (): void => {
 				if (done) return;
@@ -263,6 +265,15 @@ export function startRpcSession(options: RpcSessionOptions): RpcSession {
 				}
 				if (event.type === "tool_execution_start") {
 					result.toolCalls++;
+					// Подпись вызова: имя инструмента и его аргументы. По ней считается, сколько раз
+					// подряд повторён один и тот же вызов - повтор не ловится ни сторожем простоя
+					// (сессия не молчит), ни потолком вызовов (он срабатывает много позже).
+					const signature = `${String((event as any).toolName ?? "")} ${JSON.stringify((event as any).args ?? {})}`;
+					if (signature === lastCall) repeats++;
+					else {
+						repeats = 1;
+						lastCall = signature;
+					}
 					return;
 				}
 				// Отвергнутая команда иначе выглядит молчанием: ответа нет, ход не идёт, и причина
@@ -312,7 +323,7 @@ export function startRpcSession(options: RpcSessionOptions): RpcSession {
 							// Наблюдение идёт по ходу, а не после него: сессия, которая работает без
 							// остановки, до разбора итога не доходит никогда - управление возвращается
 							// только на оседании. Политику решает вызывающий, сеанс лишь прерывает.
-							const verdict = options.watch?.({ toolCalls: result.toolCalls, elapsedMs: Date.now() - began });
+							const verdict = options.watch?.({ toolCalls: result.toolCalls, elapsedMs: Date.now() - began, repeats, lastCall });
 							if (verdict) {
 								result.stoppedBy = verdict;
 								interrupted = true;

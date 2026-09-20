@@ -220,6 +220,26 @@ async function turns(): Promise<void> {
 	check("молчание прерывается и просится продолжение", nudged.nudges === 1, String(nudged.nudges));
 	check("продолжившийся ход прерванным не считается", !nudged.aborted, JSON.stringify(nudged));
 
+	// Круг: сессия не молчит и вызовы идут, но работа стоит. Сторож простоя такого не ловит -
+	// событий полно; потолок вызовов сработает много позже. Ловит счёт повторов одной подписи.
+	const looping = startRpcSession({
+		cwd: dir,
+		exec,
+		idleMs: 60000,
+		startMs: 60000,
+		maxNudges: 0,
+		watch: ({ repeats, lastCall }) => (repeats >= 5 ? `один и тот же вызов ${repeats} раз подряд: ${lastCall.slice(0, 40)}` : null),
+	});
+	const looped = await looping.prompt("ПОКРУГУ");
+	await looping.close();
+	check("круг одинаковых вызовов прерывается", looped.stoppedBy.includes("раз подряд"), looped.stoppedBy);
+	check("в причине названа сама команда", looped.stoppedBy.includes("grep"), looped.stoppedBy);
+	// Без этого сторожа круг не ловится ничем: событий полно, молчания нет, ход не кончается сам.
+	const unguarded = startRpcSession({ cwd: dir, exec, idleMs: 60000, startMs: 60000, maxNudges: 0 });
+	const spun = await unguarded.prompt("ПОКРУГУ");
+	await unguarded.close();
+	check("без сторожа круг ничем не прерывается", spun.stoppedBy === "", spun.stoppedBy || "(пусто)");
+
 	const lost = startRpcSession({ cwd: dir, exec, idleMs: 300, startMs: 300, maxNudges: 0 });
 	const gone = await lost.prompt("МОЛЧИ без напоминаний");
 	await lost.close();
